@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="src/Lance.Shared/Lance.Shared.csproj" Id="78af85c5-6971-4d5e-8910-6952e143bd6a" />
+  <Folder Name="/Tests/">
+    <Project Path="tests/Lance.Agent.Tests/Lance.Agent.Tests.csproj" Id="c3d4e5f6-a7b8-9012-cdef-123456789012" />
+    <Project Path="tests/Lance.Client.Tests/Lance.Client.Tests.csproj" Id="d4e5f6a7-b8c9-0123-def0-234567890123" />
+  </Folder>
+  <Project Path="src/Lance.Agent/Lance.Agent.csproj" Id="a1b2c3d4-e5f6-7890-abcd-ef1234567890" />
+  <Project Path="src/Lance.Client/Lance.Client.csproj" Id="b2c3d4e5-f6a7-8901-bcde-f12345678901" />
+</Solution>
