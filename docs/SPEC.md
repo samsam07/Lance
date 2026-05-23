@@ -1,0 +1,271 @@
+# Lance — Spec (verified facts)
+
+> Concrete values and contracts the implementation must match exactly. These are
+> **verified facts** (ports, mutation rules, config shapes), not decisions —
+> decisions and behavior live in ARCHITECTURE.md. Where this file and
+> ARCHITECTURE.md ever disagree on *behavior*, ARCHITECTURE.md wins.
+>
+> Phase 1 scope. Grows over time. Single spec file — do not split.
+
+## Constants
+- Agent default port: **9876**
+- Apollo web UI port = streaming port **+ 1**
+- Slot port (clone N): `template_port - (N × portStep)`, `portStep = 1000` (**subtracts**)
+- Max slots: **8**
+- Apollo startup timeout: 30s (poll port via TCP every 500ms)
+- Apollo executable (Lance's direct-launch path): `sunshine.exe` (confirmed).
+  Note: the *installed service* path runs `sunshinesvc.exe` + `apollo.exe`, which
+  Lance does not use — see `[DEFER-SVC]`. Template config: `sunshine.conf`; clone
+  config: `sunshine_{id}.conf`
+
+## Slot model (agent)
+```csharp
+public sealed record SlotDto
+{
+    public int Id { get; init; }            // 0 = template, 1..N = clones
+    public string Name { get; init; }       // "Lance-Template" (0), "Lance-{N}" (clones)
+    public int Port { get; init; }
+    public string Status { get; init; }     // "Allocated" | "Running"
+    public string ConfigPath { get; init; }
+    public string ConfigName { get; init; } // actual file name; "sunshine_{id}.conf" for standard slots
+    public bool IsTemplate { get; init; }   // true only for slot 0
+    public bool IsAdopted { get; init; }     // true = discovered via adoption; port is observed, not derived; no deallocate
+    public DateTimeOffset AllocatedAt { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
+    public int? ProcessId { get; init; }
+}
+```
+Slot 0: always allocated; can start/stop; **never deallocated**; its config file
+is **never modified**. `Status = Running` is derived from a live PID. Authoritative
+slot state = on-disk config files (not stored by agent).
+
+**Adopted non-standard slots:** a running `sunshine.exe` whose config does **not**
+match `sunshine_{id}.conf` is adopted with a **reserved int id starting at 1000**
+(incrementing). Its `Port` is the **observed** running-process port, not
+`template_port − N×portStep` (port math applies only to Lance-allocated standard
+slots). `IsAdopted = true`. Lance may **list and stop** these but must **never
+start, allocate, deallocate, or modify** them — they are configs Lance did not
+create and does not understand. (Adopted *standard* slots — matching the pattern —
+are normal slots, not flagged.)
+
+## Apollo config mutation (cloning template → slot N, N ≥ 1)
+
+**Mutate these fields:**
+
+| Field | Slot N value |
+|---|---|
+| `sunshine_name` | `Lance-{N}` |
+| `port` | `template_port - (N × portStep)` |
+| `log_path` | `sunshine_{N}.log` |
+| `server_cmd` | `[]` |
+| `stream_audio` | `disabled` |
+
+**Inherit verbatim — do NOT touch:**
+- `file_state` — **deliberately inherited unchanged.** All slots share the
+  template's state file; this is how pairing credentials carry over
+  automatically. **Mutating this silently breaks pairing.**
+- `headless_mode`, `dd_configuration_option`, all encoder/display settings.
+
+**Format:** INI-like, `key = value` per line, no section headers, no quoting.
+`server_cmd` is a JSON array (empty = `server_cmd = []`). If a field is absent in
+the template, append it after the last line. Preserve template line ordering.
+**Template file is never modified.**
+
+## Agent HTTP API (Phase 1)
+
+> **Phase 1: no auth, no TLS enforcement.** (Old spec assumed Bearer auth +
+> HTTPS; that moves to Phase 2.) JSON bodies, ISO-8601 UTC timestamps, integer ids.
+
+- `GET /health` → `{ status, version, uptimeSeconds, maxSlots, templatePath, templateExists }`
+- `GET /slots` → `{ slots: [SlotDto, …] }`
+- `POST /slots` — **allocate by target count**, idempotent. Body `{ "count": N }`
+  ensures the pool has **N total slots, ids `0..(N-1)`**. Slot 0 (the template)
+  always already exists and **counts as one** usable pool member; clones are
+  created for any missing `1..(N-1)`. E.g. `count: 3` → slots 0, 1, 2 (clones 1
+  and 2 created; slot 0 already present). Count below 1 or above max →
+  `400 invalid_slot_id`; exceeds max → `400 max_slots_exceeded`. Errors:
+  `400 invalid_slot_id`, `400 max_slots_exceeded`, `500 template_missing`,
+  `500 io_error`.
+- `GET /slots/{id}` → `SlotDto`. Not found → `404 slot_not_found`.
+- `POST /slots/{id}/start` — spawn `sunshine.exe "<config>"`, wait for port bind,
+  record PID. Already running → `200` (idempotent). Adopted (`IsAdopted`) →
+  `409 cannot_start_adopted` (Lance never starts configs it didn't create).
+  Errors: `404 slot_not_found`, `500 apollo_launch_failed`.
+- `POST /slots/{id}/stop` — graceful close, wait 10s, force kill, clear PID.
+  Not running → `200`. Error: `404 slot_not_found`.
+- `DELETE /slots/{id}` — deallocate (remove config + log). **Refuses if running**
+  → `409 slot_in_use` (stop it first, or use force-deallocate). Slot 0 →
+  `409 cannot_deallocate_template`; adopted (`IsAdopted`) →
+  `409 cannot_deallocate_adopted`; not found → `200` (idempotent).
+- `POST /slots/{id}/force-deallocate` — stop if running, then deallocate. Same
+  guards as DELETE except running is allowed (stopped first): Slot 0 →
+  `409 cannot_deallocate_template`; adopted → `409 cannot_deallocate_adopted`;
+  not found → `200`.
+- `GET /slots/{id}/config` — `{ "url": "https://host:<port+1>" }`. Not
+  running → `409 slot_not_running`; `?redirect=1` → `302`.
+
+> **Sessions endpoints are Phase 2+** — and when added, follow ARCHITECTURE.md's
+> **partial-success** policy, NOT the old spec's all-or-nothing/rollback.
+
+## Client CLI (Phase 1)
+
+**Config resolution:** see "Agent ↔ client target resolution" above.
+
+**Global options:** `--config <path>`, `--verbose|-v` (debug to stderr), `--no-color`.
+
+**Commands:** `lance slots`, `lance status`, `lance config <slot_id>`
+(opens config URL: `xdg-open` / shell-execute; on failure print URL, exit 0).
+`lance connect` is the Phase-1 client-driven sequence in ARCHITECTURE.md
+(partial success, fail-fast, no prompts).
+
+**Exit codes:** 0 success · 1 generic · 2 session active / concurrent invocation
+· 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
+required state · 7 config resolution failed.
+
+## Config files
+
+**Agent — `lance-agent.json`** (beside binary): `listen{host,port}`,
+`apollo{installDir,configDir,executable,templateConfigName,startupTimeoutSeconds}`,
+`slots{maxCount,portStep,namePrefix,templateName,configNamePattern}`,
+`logging{level,filePath,retainDays}`. *(`tls`/`auth` blocks exist but are
+inert in Phase 1.)*
+
+**Client — `lance.json`**: `agent{url,timeoutSeconds}`,
+`moonlight{executable,defaultFlags}`, `ui{color}`, `logging{level,filePath}`.
+`moonlight.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI flags
+append after `defaultFlags` (later args win in Moonlight). Phase 1 ignores cert errors.
+
+## Moonlight launch
+
+The client launches one Moonlight per slot, using **that slot's Apollo host+port**
+returned by the agent (the client does no port math):
+
+```
+moonlight stream <apollo_host>:<slot_port> Desktop [defaultFlags…] [CLI overrides…]
+```
+- `apollo_host` / `slot_port` come from the slot info the agent returns — one
+  Moonlight per slot. Port is always explicit.
+- Stream name is `Desktop`.
+- `defaultFlags` from config first, CLI overrides appended (Moonlight uses the
+  last of duplicate flags).
+- Spawn as **detached children**; track PID only.
+- Verified flags: `--fps <n>`, `--video-codec <HEVC|H264|AV1>` (uppercase),
+  `--bitrate <kbps>`, `--no-vsync`, `--resolution <WxH>`.
+
+## Agent ↔ client target resolution
+
+Two distinct host:port pairs — do not conflate:
+- **Agent host:port** — how the *client* reaches the *agent*. Resolution:
+  - In config file only → CLI args optional.
+  - In both args and config → **args win**.
+  - In args only, no config → **args mandatory**.
+  - (Full precedence: inline flags → positional `host[:port]` → `--config <path>`
+    → `lance.json` beside exe → platform default → exit 7 if unresolved.)
+- **Apollo host:port** — how each *Moonlight* reaches its *Apollo* instance.
+  The client never picks these; the agent returns them per slot. The client
+  **is slot-aware**: it consumes the returned slot info to launch the matching
+  Moonlight.
+
+## Client state file + locking (Phase 1)
+
+- Records the active session: per monitor `{ monitorId, slotId, apolloPort, moonlightPid }`,
+  plus `schemaVersion`, `startedAt`, `agentUrl`.
+- Paths: Linux `$XDG_RUNTIME_DIR/lance/client-state.json` (fallback
+  `/tmp/lance-{uid}/client-state.json`); Windows
+  `%LOCALAPPDATA%\Lance\client-state.json`.
+- **Mutual exclusion:** a **named mutex** (e.g. `Global\Lance.Client`) acquired on
+  start. Already held → another instance is live → exit 2. The OS auto-releases
+  it on process death (no stale-lock problem, no PID-reuse edge case).
+  - `[VERIFY-MUTEX]` — named mutexes are first-class on Windows but **not
+    reliably system-wide on Linux/.NET** (backed by a `/tmp` file, limited
+    cross-process semantics). Verify on Linux; if it doesn't hold, **fall back to
+    a PID-bearing lock file** (file holds owner PID; on acquire, if present check
+    PID liveness — alive → exit 2, dead → reclaim stale).
+- **Persistence/recovery** is the state file itself (`client-state.json`), not the
+  mutex — crash recovery reads it to reattach to running Moonlight PIDs.
+
+> **Naming:** agent and client may run on the **same machine**, so all component
+> files and primitives are component-scoped — `client-state.json` /
+> `agent-state.json` (Phase 2+), mutex `Lance.Client` / `Lance.Agent` — never
+> shared bare names.
+
+> **Agent exclusion (optional/defensive):** the agent runs as a service, so its
+> manager (systemd / Windows Services) already enforces single-instance. A
+> `Lance.Agent` mutex may be added defensively but is not mandatory in Phase 1.
+- **Stale check:** before refusing "session active", verify recorded Moonlight
+  PIDs are alive; if all dead → treat as no session, clean up, proceed.
+
+## Agent lifecycle (Phase 1)
+
+**Prerequisite (Phase 1, manual):** the user **stops the Apollo service**
+(shortcut/installed service = `sunshinesvc.exe` watchdog + `apollo.exe` worker)
+before running Lance. Lance only ever manages Apollo instances **it launches
+directly** (`sunshine.exe "<config>"`, no watchdog). Auto-managing the service is
+deferred — `[DEFER-SVC]`.
+
+**Startup:** read config → (Windows) require admin, fail fast if not elevated →
+set up logging → validate config (Apollo exe, config dir, template file) fail-fast
+→ bind listener → **adopt: scan for running `sunshine.exe` and attribute each to
+a slot** (these are direct-launched instances, e.g. survivors of a prior agent
+run — reuse them rather than killing) → scan config dir for the rest (template +
+`sunshine_{id}.conf`) → mark slots Allocated (with PID if a live process was
+adopted, else no PID) → serve.
+
+**Adopting a running `sunshine.exe` → which slot:**
+1. **Command line first (strong signal):** read the process's launch args for the
+   config path; the `sunshine_{id}.conf` name pins the slot id directly.
+2. **Bound port (fallback):** if the command line isn't readable, match the
+   process's bound port against each slot's expected port (`template_port −
+   N×portStep`).
+3. **Non-standard (neither matches):** the process runs a config that is not a
+   standard `sunshine_{id}.conf` and binds no expected port → adopt as a
+   **non-standard slot** (reserved id ≥1000, observed port, `IsAdopted = true`,
+   record its `ConfigName`). Observe + stop only; never start/allocate/deallocate.
+
+**Graceful shutdown** (`ApplicationStopping`): stop accepting requests → stop each
+running slot (graceful, wait 10s, force kill) → flush logs → exit. A hard
+kill/power loss leaves Apollo instances running; the next startup **adopts** them
+(see startup, above).
+
+> **`[VERIFY-APOLLO]`** — Apollo needs admin on **Windows** (confirmed). **Linux:
+> privilege model untested/unknown** — verify or ask before assuming. (Executable
+> name for Lance's direct-launch path is `sunshine.exe`; confirmed.)
+
+> **`[DEFER-SVC]`** — auto-managing the Apollo service/watchdog (so the user
+> needn't stop it by hand) is deferred, likely Phase 4. The watchdog
+> (`sunshinesvc.exe`) resurrects `apollo.exe`, which would fight Lance owning
+> slots (esp. slot 0). Phase 1 sidesteps it by the manual prerequisite above.
+
+## Error response format
+```json
+{ "error": "code_string", "message": "Human readable", "details": {} }
+```
+Phase-1 codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
+`cannot_deallocate_template`, `cannot_deallocate_adopted`, `cannot_start_adopted`,
+`template_missing`, `apollo_launch_failed`, `invalid_slot_id`,
+`max_slots_exceeded`, `io_error`, `internal_error`.
+*(`slot_in_use` = `DELETE /slots/{id}` on a running slot; use
+`POST /slots/{id}/force-deallocate` to stop-then-deallocate instead.)*
+*(Auth/session codes — `invalid_token`, `invalid_monitor_count`, `connect_failed`
+— are Phase 2+.)*
+
+## Build / project setup
+
+- **.NET 10**, `PublishAot=true` in every project from day one (enforces
+  no-reflection discipline early). `Nullable` + `ImplicitUsings` enabled.
+- **Three projects:** `Lance.Agent` (Sdk.Web), `Lance.Client` (Exe), **`Lance.Shared`**
+  (DTOs + JSON source-gen contexts). Shared exists so the client never drags in
+  ASP.NET Core. Binary names via `AssemblyName`: `lance-agent`, `lance`.
+- **JSON:** System.Text.Json with **source generators** only. **Newtonsoft.Json is
+  forbidden** (not AOT-safe). camelCase keys.
+- **CLI:** `System.CommandLine` for parsing (AOT-safe); **Spectre.Console for
+  rendering only** (tables/colors) — not Spectre.Console.Cli (AOT issues).
+- Central package management (`Directory.Packages.props`).
+
+> **Package versions:** the old spec pinned specific versions (~3 weeks stale).
+> **Do not trust them blindly** — verify latest stable compatible with .NET 10 at
+> first build. `[VERIFY-VERSIONS]`
+
+## Logging
+Format and per-level detail: **AI to propose, owner approves.** (Baseline: agent
+= console + rolling daily file; client = stderr in Phase 1.)

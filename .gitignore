@@ -216,6 +216,8 @@ publish/
 # but database connection strings (with potential passwords) will be unencrypted
 *.pubxml
 *.publishproj
+# Lance: our publish profiles contain no secrets — include them
+!src/**/Properties/PublishProfiles/*.pubxml
 
 # Microsoft Azure Web App publish settings. Comment the next line if you want to
 # checkin your Azure Web App publish settings, but sensitive information contained
@@ -427,3 +429,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+dist/lance-agent.zip
+dist/agent/aspnetcorev2_inprocess.dll
+dist/agent/lance-agent.exe
+dist/agent/lance-agent.json
+dist/client/lance.exe
+dist/client/lance.json
