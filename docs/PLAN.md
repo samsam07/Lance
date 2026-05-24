@@ -99,8 +99,112 @@ Unit and integration tests are deferred — no test code is written during Phase
 ---
 
 ## Phase 2 — Alpha
-Flesh on the skeleton: auth/TLS, sessions, the session layer, `connect`/`disconnect`
-proper. *(Detail when Phase 1 ships.)*
+
+**Goal:** a fully functional personal tool. Sessions track connections, auth/TLS
+secures the API, and `connect`/`disconnect` use the proper fat-agent flow.
+
+**In scope**
+- Auth + TLS on the agent API.
+- Agent sessions layer: `POST /sessions`, `GET /sessions[/{id}]`,
+  `DELETE /sessions/{id}`.
+- Client: full `connect` (fat-agent, `--monitors`), `disconnect`, `sessions`,
+  enhanced `status`.
+- Client state file + named mutex (single-instance guard, crash recovery).
+- Platform completions deferred from Phase 1: Windows process adoption
+  (`[DEFER-WIN-ADOPT]`), Linux graceful SIGTERM stop (`[DEFER-LINUX-SIGTERM]`).
+- Resolution of `[VERIFY-MUTEX]` (Linux named-mutex vs PID lock file).
+- Unit and integration tests (first test code written this phase).
+
+**Out of scope (deferred)**
+- Windows service / daemon install (Phase 4).
+- Auto-managing the Apollo service/watchdog `[DEFER-SVC]` (Phase 4).
+- Audio-master edge case across simultaneous sessions `[DEFER-1]` (later phase).
+- `[VERIFY-APOLLO]` Linux agent privilege model (verify before Linux deployment).
+
+**Hard prerequisite — `[RESEARCH-1]`**
+> Apollo↔Moonlight connection detection is unresolved. This research spike
+> **must be completed as Slice 1** before any session code is written — the
+> result directly shapes the session architecture. If reliable detection is
+> impossible, session state becomes best-effort (record slots/PIDs but cannot
+> confirm live connections). The spike produces findings documented in
+> ARCHITECTURE.md; it produces no code.
+
+### Phase 2 — slice breakdown (review gates)
+
+Same rules as Phase 1: one slice at a time, review gate after each.
+
+1. **Research spike — `[RESEARCH-1]`** *(no code).*
+   Investigate whether an Apollo instance with a live Moonlight client is
+   detectable (network probe, Apollo API, process signals, etc.). Document
+   findings and the chosen detection strategy (or confirmed impossibility) in
+   ARCHITECTURE.md. **All session slices depend on this outcome.**
+
+2. **Platform completions.**
+   - `[DEFER-WIN-ADOPT]` — Windows process adoption: enumerate running
+     `sunshine.exe` via `Process.GetProcessesByName`, attribute each to a slot
+     by config name (standard) or observed port (fallback), register as adopted
+     (id ≥1000 if non-standard). Mirrors the Linux path already implemented.
+   - `[DEFER-LINUX-SIGTERM]` — Send SIGTERM before falling back to Kill on Linux
+     stop. Requires P/Invoke (`kill(pid, SIGTERM)`).
+   - `[VERIFY-MUTEX]` — Determine whether `System.Threading.Mutex` is reliably
+     cross-process on Linux/.NET. If yes, use it for the client mutex. If no,
+     fall back to a PID-bearing lock file (read PID; alive → exit 2, dead →
+     reclaim). Document decision in SPEC.
+
+3. **Auth + TLS (agent + client).**
+   - Agent: `tls{}` config block (cert path, key path); enforce HTTPS on the
+     listener. `auth{}` config block (bearer token); validate `Authorization:
+     Bearer <token>` on all non-health endpoints.
+   - Client: `auth.token` in `lance.json`; send bearer on every request. TLS
+     cert validation configurable (strict default; `insecure` flag for dev).
+   - `GET /health` remains unauthenticated (liveness probe).
+
+4. **Agent sessions layer.**
+   `POST /sessions` — fat-agent shorthand: receives `{ monitorCount }`,
+   allocates + starts slots internally, returns a session manifest (session id,
+   per-slot `{ slotId, host, port }`). Partial success per ARCHITECTURE:
+   returns whatever succeeded; Slot-0 failure → session runs without audio (warn,
+   continue). Session state stored in agent memory (Phase 2); disk persistence
+   is Phase 3+. `GET /sessions`, `GET /sessions/{id}`,
+   `DELETE /sessions/{id}` (stops all slots in the session). *(Architecture-zone
+   — review closely: the partial-success invariant and session state model.)*
+
+5. **Client state file + named mutex.**
+   - Named mutex `Global\Lance.Client` (Windows) / strategy from Slice 2
+     `[VERIFY-MUTEX]` finding (Linux). Acquired on `connect`; held until
+     `disconnect` or process death. Already-held → exit 2.
+   - `client-state.json` at platform paths from SPEC. Written on `connect` (session
+     id, slot↔Moonlight-PID mapping, `startedAt`, `agentUrl`). Read on `disconnect`
+     and `status`. Stale check: if all recorded Moonlight PIDs are dead → treat as
+     no session, clean up, proceed.
+   - Schema: `{ schemaVersion, startedAt, agentUrl, sessionId, monitors: [{ monitorId, slotId, apolloPort, moonlightPid }] }`.
+
+6. **Client: full session commands + enhanced status.** *(Architecture-zone.)*
+   - `lance connect [--monitors <list>] [--session <id>]` — calls `POST /sessions`,
+     receives manifest, launches Moonlight per slot, writes state file. `--monitors`
+     is comma-separated 1-indexed physical monitor IDs; default: all physical
+     monitors (requires OS display enumeration). Replaces `--count`.
+   - `lance disconnect [--session <id>] [--keep-running] [--purge]` — reads state
+     file, calls `DELETE /sessions/{id}`, stops local Moonlight PIDs (unless
+     `--keep-running`), removes state file (unless `--purge` skips API call).
+   - `lance sessions [--id <id>]` — calls `GET /sessions[/{id}]`, renders table.
+   - `lance status` (enhanced) — unified view: slots + sessions + local Moonlight
+     PIDs cross-referenced from state file.
+
+### Review-depth guide (Phase 2)
+- **Research** (1): findings doc only — review the documented strategy, not code.
+- **Platform completions** (2): moderate — adoption logic is subtle; review closely.
+- **Auth/TLS** (3): moderate — correctness matters; no crypto invention.
+- **Sessions agent** (4): **architecture-zone** — partial-success invariant is
+  the correctness-critical part.
+- **State file + mutex** (5): moderate — locking model and stale-check logic.
+- **Session commands** (6): **architecture-zone** — failure paths, state
+  consistency, and the `--monitors` OS enumeration are the tricky parts.
+
+### Tests
+Phase 2 is when test code is first written. Aim: unit tests for the session
+layer partial-success logic (Slice 4) and client state file read/write (Slice 5)
+at minimum. Integration tests deferred to Phase 3.
 
 ## Phase 3 — Beta
 Feature-complete but not public-ready. *(TBD.)*

@@ -41,20 +41,22 @@ small enough to fully read in ~10–15 minutes.
 - Anything marked `???`, `[RESEARCH-1]`, `[DEFER-1]`, `[DEFER-SVC]`,
   `[VERIFY-APOLLO]`, `[VERIFY-MUTEX]`, or `[VERIFY-VERSIONS]` in the docs — these
   are **not yours to silently resolve**. `[RESEARCH-1]` (Apollo↔Moonlight
-  connection detection) blocks all session work and is settled by a research
-  spike, not code. `[DEFER-SVC]` — auto-managing the Apollo service/watchdog is a
-  later phase; Phase 1 assumes the user stops it manually. `[VERIFY-APOLLO]` —
-  Apollo's Linux privilege model is untested; verify or ask. `[VERIFY-MUTEX]` —
-  named-mutex cross-process behavior on Linux is unverified; if it doesn't hold,
-  fall back to a PID-bearing lock file. `[VERIFY-VERSIONS]` — check latest stable
-  package versions at first build; don't trust the stale pins.
+  connection detection) is Phase 2 Slice 1 — a pure research task that produces
+  findings documented in ARCHITECTURE.md, not code; all session slices depend on
+  its outcome. `[DEFER-SVC]` — auto-managing the Apollo service/watchdog is Phase
+  4; the user still stops it manually. `[VERIFY-APOLLO]` — Apollo's Linux
+  privilege model is untested; verify or ask before Linux agent work. `[VERIFY-MUTEX]`
+  — named-mutex cross-process semantics on Linux are unverified; Phase 2 Slice 2
+  resolves this (use mutex if reliable, else PID lock file). `[VERIFY-VERSIONS]` —
+  check latest stable package versions at first build; don't trust stale pins.
 - A value not in SPEC (port, path, timeout, error code) — ask or cite where you
   got it; never make one up.
 
 ## Hard rules
 
-- **Phase 1 only** unless told otherwise. No auth, no TLS enforcement, no
-  Windows service, no sessions. (Sessions/auth are Phase 2+.)
+- **Phase 2 is active.** Sessions, auth, and TLS are now in scope. No Windows
+  service install (Phase 4). Auto-managing the Apollo service `[DEFER-SVC]`
+  remains deferred (Phase 4). No `[DEFER-1]` audio-master edge case (later phase).
 - **Connect = partial success**, never all-or-nothing/rollback. 2 of 3 monitors
   beats 0. Master/Slot-0 failure → session runs without audio (warn + continue);
   it does **not** fail the session. (This overturns the old DECISIONS D13 — ignore
