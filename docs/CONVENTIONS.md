@@ -25,7 +25,8 @@ Notes:
 - Nested types are allowed but discouraged — use only when the type is
   genuinely meaningless outside its parent.
 - Interfaces are prefixed with `I` (`ISlotManager`).
-- Try to separate code by an empty line when there is a change in code logic, context or logical bound.
+- Do not use top-level statements. Entry points use an explicit `internal static class Program` with `private static async Task<int> Main(string[] args)`.
+- Try to separate code by an empty line when there is a change in code logic, context or logical bound. **Exception:** do not add an empty line between statements so tightly coupled they form a single logical unit — e.g. declaring a variable and immediately checking or transforming it on the next line.
 
 Full example showing the order:
 
@@ -74,6 +75,7 @@ public sealed class SlotManager : ISlotManager
 
 - Prefer boolean members to read as a question: prefix with `Is` or `Has` (`IsRunning`, `HasTemplate`).
 - Prefer full names over abbreviations.
+- Constants: prefer `public const`. Use `private const` only when the value has no meaning outside the class; in that case use PascalCase (never `_camelCase`). `.editorconfig` enforces this via a dedicated rule so the private-field underscore rule does not apply to `const` fields.
 
 ## Method shape
 
@@ -91,17 +93,46 @@ public sealed class SlotManager : ISlotManager
 ## Control flow
 
 - Maximum 2 levels of nesting. Go deeper only with a clear, defensible reason.
+- All control structures (`if`, `for`, `foreach`, `while`, etc.) must use braces. One-liners are a rare exception — only when a sequence of similar short guards appears together and the compact form genuinely reduces visual clutter. When in doubt, use braces.
+  ```csharp
+  // Default: always use braces
+  if (!IsReady)
+  {
+      return;
+  }
+
+  // NOT OK: two lines without braces
+  if (!IsReady)
+      return;
+
+  // Rare exception: one-liner only when many similar guards are grouped
+  // and braces would add noise without adding clarity
+  if (x < 0) throw new ArgumentOutOfRangeException(nameof(x));
+  if (y < 0) throw new ArgumentOutOfRangeException(nameof(y));
+  if (z < 0) throw new ArgumentOutOfRangeException(nameof(z));
+  ```
 - Use a ternary only when both branches are trivial and the short form reads
   better — e.g. picking a string from a bool:
   ```csharp
-  var status = slot.IsRunning ? "running" : "stopped";
+  string status = slot.IsRunning ? "running" : "stopped";
+  ```
+
+## Variable declarations
+
+- Always use explicit type names. Use `var` sparingly — only for anonymous types or genuinely unreadable generic signatures (e.g. `Dictionary<string, List<SlotInfo>>`). Long but clear names like `WebApplicationBuilder` are still written explicitly.
+- When the declared type is explicit on the left, use `new()` instead of repeating the full constructor name:
+  ```csharp
+  // Prefer:
+  WindowsPrincipal principal = new(identity);
+
+  // Over:
+  WindowsPrincipal principal = new WindowsPrincipal(identity);
   ```
 
 ## Immutability and types
 
-- Prefer `record` for objects meant to be immutable and that are short and
-  simple.
-- For records, prefer `init` over `set`, and use `required` where appropriate.
+- Prefer `record` for objects meant to be immutable and that are short and simple.
+- For records, prefer `init` over `set`. Use `required` only when no sensible default exists — if the SPEC or domain provides a value for a field, use it as the property default and omit `required`.
 
 ## Comments
 

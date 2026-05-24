@@ -136,12 +136,12 @@ no port math; the agent supplies every Apollo host:port.
 **Slots** — mirror the agent slot endpoints.
 
 **Status**
-- `lance status [host[:port]]` — unified view: slots + sessions + local Moonlight
+- `lance status` — unified view: slots + sessions + local Moonlight
   PIDs in one place. (Primary Phase-1 status view, since Phase 1 has no sessions.)
 
 **Sessions** *(Phase 2+)*
-- `lance sessions [host[:port]] [--id xxx]`
-- `lance connect [host[:port]] [options] [--options "<moonlight-options>"]`
+- `lance sessions [--id xxx]`
+- `lance connect [options] [--options "<moonlight-options>"]`
   - `--monitors <list>` — comma-separated 1-indexed monitor IDs. Default: all
     physical monitors.
   - `--session xxx` — connect with a specific session id (error if it already
@@ -217,6 +217,9 @@ Phase 1 has no session layer, so connect is the simpler client-driven sequence:
 ensure N slots allocated, start them, launch N Moonlights. Partial success +
 warn on any failed slot. **Fail-fast: no interactive prompts.** Either it works
 per-slot or that slot is skipped with a warning.
+
+N is supplied by the user via `--count <N>` (Phase-1 temporary flag). Phase 2
+replaces this with `--monitors <list>` — see SPEC for the full note.
 
 ## Notes / open items
 - `[RESEARCH-1]` Apollo↔Moonlight connection detection — research spike before

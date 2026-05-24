@@ -24,6 +24,7 @@ public sealed record SlotDto
 {
     public int Id { get; init; }            // 0 = template, 1..N = clones
     public string Name { get; init; }       // "Lance-Template" (0), "Lance-{N}" (clones)
+    public string Host { get; init; } // resolved host the client uses to reach this slot's Apollo instance
     public int Port { get; init; }
     public string Status { get; init; }     // "Allocated" | "Running"
     public string ConfigPath { get; init; }
@@ -35,6 +36,7 @@ public sealed record SlotDto
     public int? ProcessId { get; init; }
 }
 ```
+`Host` is populated by the agent from its configured `listen.host`; if that value is `0.0.0.0`, `*`, or empty, the agent substitutes the machine's resolved hostname so the client always receives a usable address.
 Slot 0: always allocated; can start/stop; **never deallocated**; its config file
 is **never modified**. `Status = Running` is derived from a live PID. Authoritative
 slot state = on-disk config files (not stored by agent).
@@ -111,12 +113,19 @@ the template, append it after the last line. Preserve template line ordering.
 
 **Config resolution:** see "Agent ↔ client target resolution" above.
 
-**Global options:** `--config <path>`, `--verbose|-v` (debug to stderr), `--no-color`.
+**Global options:** `--agent <url>|-a` (override agent URL), `--config <path>|-c`, `--verbose|-v` (debug to stderr), `--no-color`.
 
 **Commands:** `lance slots`, `lance status`, `lance config <slot_id>`
 (opens config URL: `xdg-open` / shell-execute; on failure print URL, exit 0).
-`lance connect` is the Phase-1 client-driven sequence in ARCHITECTURE.md
+`lance connect --count <N>` is the Phase-1 client-driven sequence in ARCHITECTURE.md
 (partial success, fail-fast, no prompts).
+
+> **Phase 1 monitor targeting:** `--count <N>` (required integer) is the Phase-1
+> primitive — it tells the agent how many slots to allocate and start, then
+> launches one Moonlight per slot. **This flag is intentionally temporary.**
+> Phase 2 replaces it with `--monitors <list>` (comma-separated 1-indexed physical
+> monitor IDs, default: all physical monitors), which adds OS-level display
+> enumeration. Do not design `--count` for longevity; it will be dropped.
 
 **Exit codes:** 0 success · 1 generic · 2 session active / concurrent invocation
 · 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
@@ -125,14 +134,14 @@ required state · 7 config resolution failed.
 ## Config files
 
 **Agent — `lance-agent.json`** (beside binary): `listen{host,port}`,
-`apollo{installDir,configDir,executable,templateConfigName,startupTimeoutSeconds}`,
-`slots{maxCount,portStep,namePrefix,templateName,configNamePattern}`,
+`remoteServer{installDir,configDir,executable,templateConfigName,startupTimeoutSeconds}`,
+`slots{maxCount,portStep,stopTimeoutSeconds,namePrefix,templateName,configNamePattern}`,
 `logging{level,filePath,retainDays}`. *(`tls`/`auth` blocks exist but are
 inert in Phase 1.)*
 
 **Client — `lance.json`**: `agent{url,timeoutSeconds}`,
-`moonlight{executable,defaultFlags}`, `ui{color}`, `logging{level,filePath}`.
-`moonlight.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI flags
+`remoteClient{executable,defaultFlags}`, `ui{color}`, `logging{level,filePath}`.
+`remoteClient.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI flags
 append after `defaultFlags` (later args win in Moonlight). Phase 1 ignores cert errors.
 
 ## Moonlight launch
@@ -141,10 +150,10 @@ The client launches one Moonlight per slot, using **that slot's Apollo host+port
 returned by the agent (the client does no port math):
 
 ```
-moonlight stream <apollo_host>:<slot_port> Desktop [defaultFlags…] [CLI overrides…]
+moonlight stream <slot.Host>:<slot.Port> Desktop [defaultFlags…] [CLI overrides…]
 ```
-- `apollo_host` / `slot_port` come from the slot info the agent returns — one
-  Moonlight per slot. Port is always explicit.
+- `slot.Host` / `slot.Port` come from `SlotDto` as returned by the agent — one
+  Moonlight per slot. Port is always explicit. The client never derives these values.
 - Stream name is `Desktop`.
 - `defaultFlags` from config first, CLI overrides appended (Moonlight uses the
   last of duplicate flags).
@@ -155,12 +164,11 @@ moonlight stream <apollo_host>:<slot_port> Desktop [defaultFlags…] [CLI overri
 ## Agent ↔ client target resolution
 
 Two distinct host:port pairs — do not conflate:
-- **Agent host:port** — how the *client* reaches the *agent*. Resolution:
-  - In config file only → CLI args optional.
-  - In both args and config → **args win**.
-  - In args only, no config → **args mandatory**.
-  - (Full precedence: inline flags → positional `host[:port]` → `--config <path>`
-    → `lance.json` beside exe → platform default → exit 7 if unresolved.)
+- **Agent host:port** — how the *client* reaches the *agent*. Resolution
+  (first match wins; exit 7 if none yield a URL):
+  1. `--agent <url>` / `-a` CLI flag
+  2. `--config <path>` / `-c` explicit config file → `agent.url`
+  3. `lance.json` beside exe → `agent.url`
 - **Apollo host:port** — how each *Moonlight* reaches its *Apollo* instance.
   The client never picks these; the agent returns them per slot. The client
   **is slot-aware**: it consumes the returned slot info to launch the matching
@@ -216,7 +224,9 @@ adopted, else no PID) → serve.
    config path; the `sunshine_{id}.conf` name pins the slot id directly.
 2. **Bound port (fallback):** if the command line isn't readable, match the
    process's bound port against each slot's expected port (`template_port −
-   N×portStep`).
+   N×portStep`). `[DEFER-WIN-ADOPT]` — **Phase 1 only implements step 1**
+   (Linux via `/proc/{pid}/cmdline`; Windows adoption is a full no-op). Step 2
+   port-matching and Windows adoption deferred to Phase 2.
 3. **Non-standard (neither matches):** the process runs a config that is not a
    standard `sunshine_{id}.conf` and binds no expected port → adopt as a
    **non-standard slot** (reserved id ≥1000, observed port, `IsAdopted = true`,

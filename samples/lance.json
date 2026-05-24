@@ -1,0 +1,17 @@
+{
+  "agent": {
+    "url": "http://<agent-host>:9876",
+    "timeoutSeconds": 30
+  },
+  "remoteClient": {
+    "executable": "moonlight.exe",
+    "defaultFlags": ["--fps", "60", "--video-codec", "HEVC", "--bitrate", "80000", "--no-vsync"]
+  },
+  "ui": {
+    "color": true
+  },
+  "logging": {
+    "level": "Information",
+    "filePath": null
+  }
+}

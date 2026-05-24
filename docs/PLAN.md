@@ -33,6 +33,27 @@ to validate that orchestrating parallel Apollo + Moonlight actually works.
   direct `sunshine.exe` launches.
 - Interactive failure prompts.
 
+**Linux-specific verification (deferred — no Linux hardware available yet):**
+- `[VERIFY-APOLLO]` — Apollo's Linux privilege model is untested. Must be verified
+  on Linux before Slice 4 (start/stop) is implemented for that platform. Until
+  then, Slice 4 targets Windows only.
+- `[VERIFY-MUTEX]` — Named-mutex cross-process semantics on Linux/.NET are
+  unverified. Must be verified before Slice 6 (client locking) is implemented for
+  Linux. Fallback if unreliable: PID-bearing lock file (read PID on acquire; if
+  alive → exit 2, if dead → reclaim).
+
+**Platform deferrals (Slice 4):**
+- `[DEFER-WIN-ADOPT]` — Windows process adoption is a no-op in Phase 1.
+  `ProcessAdopter.Adopt` only runs on Linux (via `/proc/{pid}/cmdline`). On
+  Windows, any Apollo instances running before the agent starts will not be
+  tracked and cannot be stopped via Lance until restarted through it. Deferred
+  to Phase 2 (enumerate via `Process.GetProcessesByName`, register as adopted
+  id ≥ 1000).
+- `[DEFER-LINUX-SIGTERM]` — Graceful Linux stop (SIGTERM before SIGKILL) requires
+  P/Invoke. In Phase 1, Linux stop skips the graceful step and proceeds directly
+  to `WaitForExitAsync` + `Kill()` after the configured timeout. Deferred to
+  Phase 2.
+
 **Phase 1 connect policy:** partial success, warn on failed slots, no rollback,
 no prompts.
 
@@ -71,6 +92,9 @@ a slice before the next begins. No slice runs ahead of your understanding.**
 - **Architecture-zone** (2, 3, 4, 6): trace the control flow; confirm it matches
   ARCHITECTURE.md; correct taste against CONVENTIONS.md. These are the moat.
 - **Moderate** (5): read, but don't agonize.
+
+### Tests
+Unit and integration tests are deferred — no test code is written during Phase 1 slices. The test project skeletons (`Lance.Agent.Tests`, `Lance.Client.Tests`) exist in the solution and will be filled either in a dedicated final slice of Phase 1 or at the start of Phase 2, whichever comes first.
 
 ---
 
