@@ -30,6 +30,11 @@ internal static class Program
 
         root.Add(SlotsCommand.Build(agentOption, noColorOption, () => config));
         root.Add(StatusCommand.Build(agentOption, noColorOption, () => config));
+        root.Add(AllocateCommand.Build(agentOption, noColorOption, () => config));
+        root.Add(StartCommand.Build(agentOption, () => config));
+        root.Add(StopCommand.Build(agentOption, () => config));
+        root.Add(DeallocateCommand.Build(agentOption, () => config));
+        root.Add(ForceDeallocateCommand.Build(agentOption, () => config));
         root.Add(ConfigCommand.Build(agentOption, noColorOption, () => config));
         root.Add(ConnectCommand.Build(agentOption, () => config));
 

@@ -50,6 +50,21 @@ internal sealed class AgentClient : IDisposable
         return await PostNoBodyAsync($"slots/{slotId}/start", cancellationToken);
     }
 
+    public async Task<AgentResult<bool>> StopSlotAsync(int slotId, CancellationToken cancellationToken = default)
+    {
+        return await PostNoBodyAsync($"slots/{slotId}/stop", cancellationToken);
+    }
+
+    public async Task<AgentResult<bool>> DeallocateSlotAsync(int slotId, CancellationToken cancellationToken = default)
+    {
+        return await DeleteAsync($"slots/{slotId}", cancellationToken);
+    }
+
+    public async Task<AgentResult<bool>> ForceDeallocateSlotAsync(int slotId, CancellationToken cancellationToken = default)
+    {
+        return await PostNoBodyAsync($"slots/{slotId}/force-deallocate", cancellationToken);
+    }
+
     private async Task<AgentResult<T>> GetAsync<T>(string path, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
     {
         Log.Debug("GET {Path}", path);
@@ -58,6 +73,7 @@ internal sealed class AgentClient : IDisposable
             HttpResponseMessage response = await _http.GetAsync(path, cancellationToken);
             Log.Debug("Response {StatusCode} from {Path}", (int)response.StatusCode, path);
             string body = await response.Content.ReadAsStringAsync(cancellationToken);
+            Log.Debug("Response body: {Body}", body);
 
             if (!response.IsSuccessStatusCode)
                 return ParseError<T>(body);
@@ -88,10 +104,12 @@ internal sealed class AgentClient : IDisposable
         try
         {
             string bodyJson = JsonSerializer.Serialize(body, bodyTypeInfo);
+            Log.Debug("Request body: {Body}", bodyJson);
             using StringContent content = new(bodyJson, Encoding.UTF8, "application/json");
             HttpResponseMessage response = await _http.PostAsync(path, content, cancellationToken);
             Log.Debug("Response {StatusCode} from {Path}", (int)response.StatusCode, path);
             string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            Log.Debug("Response body: {Body}", responseBody);
 
             if (!response.IsSuccessStatusCode)
                 return ParseError<TResult>(responseBody);
@@ -119,10 +137,40 @@ internal sealed class AgentClient : IDisposable
         {
             HttpResponseMessage response = await _http.PostAsync(path, content: null, cancellationToken);
             Log.Debug("Response {StatusCode} from {Path}", (int)response.StatusCode, path);
+            string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            Log.Debug("Response body: {Body}", responseBody);
 
             if (!response.IsSuccessStatusCode)
             {
-                string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                return ParseError<bool>(responseBody);
+            }
+
+            return new AgentResult<bool> { IsSuccess = true, Value = true };
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Debug("Agent unreachable: {Reason}", ex.Message);
+            return new AgentResult<bool> { IsUnreachable = true };
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            Log.Debug("Request to {Path} timed out", path);
+            return new AgentResult<bool> { IsUnreachable = true };
+        }
+    }
+
+    private async Task<AgentResult<bool>> DeleteAsync(string path, CancellationToken cancellationToken)
+    {
+        Log.Debug("DELETE {Path}", path);
+        try
+        {
+            HttpResponseMessage response = await _http.DeleteAsync(path, cancellationToken);
+            Log.Debug("Response {StatusCode} from {Path}", (int)response.StatusCode, path);
+            string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            Log.Debug("Response body: {Body}", responseBody);
+
+            if (!response.IsSuccessStatusCode)
+            {
                 return ParseError<bool>(responseBody);
             }
 
