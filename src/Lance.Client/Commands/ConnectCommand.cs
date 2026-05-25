@@ -27,6 +27,12 @@ internal static class ConnectCommand
             }
 
             ClientConfig? config = getConfig();
+            if (config is null)
+            {
+                Log.Error("Config could not be loaded — provide --config <path> or place lance.json beside the executable");
+                return ExitCodes.ConfigResolutionFailed;
+            }
+
             string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, agentOption, config);
 
             if (agentUrl is null)
@@ -37,10 +43,12 @@ internal static class ConnectCommand
 
             Log.Information("Targeting agent at {AgentUrl}", agentUrl);
 
-            string executable = config?.RemoteClient.Executable
-                ?? (OperatingSystem.IsWindows() ? "moonlight.exe" : "moonlight");
-            string[] defaultFlags = config?.RemoteClient.DefaultFlags ?? [];
-            int timeout = config?.Agent?.TimeoutSeconds ?? 30;
+            string executable = config.RemoteClient.Executable;
+            string[] defaultFlags = config.RemoteClient.DefaultFlags;
+            int timeout = config.Agent?.TimeoutSeconds ?? 30;
+
+            Log.Debug("Effective config — executable: {Executable}, flags: [{Flags}], timeout: {Timeout}s",
+                executable, string.Join(", ", defaultFlags), timeout);
 
             using AgentClient client = new(agentUrl, timeout);
 
@@ -140,6 +148,7 @@ internal static class ConnectCommand
             foreach (string flag in defaultFlags)
                 psi.ArgumentList.Add(flag);
 
+            Log.Debug("Launching: {Executable} {Args}", executable, string.Join(" ", psi.ArgumentList));
             Process? process = Process.Start(psi);
             if (process is null)
                 return false;

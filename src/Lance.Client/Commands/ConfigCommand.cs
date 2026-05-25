@@ -82,6 +82,7 @@ internal static class ConfigCommand
                 psi.ArgumentList.Add(url);
             }
 
+            Log.Debug("Opening URL: {Url}", url);
             Process.Start(psi);
             return true;
         }
