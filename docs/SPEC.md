@@ -13,6 +13,7 @@
 - Slot port (clone N): `template_port - (N × portStep)`, `portStep = 1000` (**subtracts**)
 - Max slots: **8**
 - Apollo startup timeout: 30s (poll port via TCP every 500ms)
+- Apollo stop timeout: 10s graceful wait, then force-kill. `[INVESTIGATE-STOP]` — Phase 1 testing shows graceful stop consistently times out; see PLAN.md.
 - Apollo executable (Lance's direct-launch path): `sunshine.exe` (confirmed).
   Note: the *installed service* path runs `sunshinesvc.exe` + `apollo.exe`, which
   Lance does not use — see `[DEFER-SVC]`. Template config: `sunshine.conf`; clone
@@ -210,6 +211,13 @@ Two distinct host:port pairs — do not conflate:
 before running Lance. Lance only ever manages Apollo instances **it launches
 directly** (`sunshine.exe "<config>"`, no watchdog). Auto-managing the service is
 deferred — `[DEFER-SVC]`.
+
+**Listen address:** the agent calls `WebHost.UseUrls("http://{host}:{port}")` from
+`listen` config immediately after `CreateSlimBuilder`. This explicitly overrides
+`ASPNETCORE_URLS`, `launchSettings.json`, and any other environment-injected URL.
+Phase 1 is HTTP only — the HTTPS profile in `launchSettings.json` must not be
+used and will fail if it reaches Kestrel. Phase 2 replaces `UseUrls` with proper
+Kestrel HTTPS/TLS configuration.
 
 **Startup:** read config → (Windows) require admin, fail fast if not elevated →
 set up logging → validate config (Apollo exe, config dir, template file) fail-fast

@@ -150,6 +150,14 @@ Same rules as Phase 1: one slice at a time, review gate after each.
      cross-process on Linux/.NET. If yes, use it for the client mutex. If no,
      fall back to a PID-bearing lock file (read PID; alive → exit 2, dead →
      reclaim). Document decision in SPEC.
+   - `[INVESTIGATE-STOP]` — In Phase 1 testing, stopping a running slot
+     consistently exceeds the 10 s graceful timeout and falls through to
+     force-kill. Investigate why Apollo does not respond to the graceful close
+     signal (`CloseMainWindow` on Windows / SIGTERM on Linux once
+     `[DEFER-LINUX-SIGTERM]` is resolved). Determine whether the timeout needs
+     tuning, whether a different shutdown signal is required, or whether Apollo
+     simply does not support graceful termination. Document findings and correct
+     the stop path accordingly.
 
 3. **Auth + TLS (agent + client).**
    - Agent: `tls{}` config block (cert path, key path); enforce HTTPS on the
