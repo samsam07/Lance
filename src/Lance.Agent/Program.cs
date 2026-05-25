@@ -1,3 +1,4 @@
+using System.Text;
 using Lance.Agent.Configuration;
 using Lance.Agent.Endpoints;
 using Lance.Agent.Infrastructure;
@@ -33,6 +34,10 @@ internal static class Program
 
             DateTimeOffset startedAt = DateTimeOffset.UtcNow;
             WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
+
+            // Phase 1: HTTP only. Explicitly override launchSettings.json / ASPNETCORE_URLS
+            // so the agent always binds to the configured host:port via plain HTTP.
+            builder.WebHost.UseUrls($"http://{config.Listen.Host}:{config.Listen.Port}");
 
             builder.Host.UseSerilog((_, loggerConfig) =>
             {
@@ -93,6 +98,17 @@ internal static class Program
                 Task.WhenAll(tasks).GetAwaiter().GetResult();
             });
 
+            if (level <= LogEventLevel.Debug)
+            {
+                Microsoft.Extensions.Logging.ILogger httpBodyLogger = app.Services
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("Lance.Agent.HttpBody");
+                app.Use(async (context, next) =>
+                {
+                    await LogHttpBodiesAsync(context, next, httpBodyLogger);
+                });
+            }
+
             app.MapHealthEndpoints(startedAt);
             app.MapSlotEndpoints();
 
@@ -109,5 +125,44 @@ internal static class Program
         {
             await Log.CloseAndFlushAsync();
         }
+    }
+
+    private static async Task LogHttpBodiesAsync(
+        HttpContext context, RequestDelegate next, Microsoft.Extensions.Logging.ILogger logger)
+    {
+        context.Request.EnableBuffering();
+        string requestBody = await ReadStreamAsync(context.Request.Body);
+        context.Request.Body.Position = 0;
+        if (requestBody.Length > 0)
+        {
+            logger.LogDebug("Request body: {Body}", requestBody);
+        }
+
+        Stream originalBody = context.Response.Body;
+        using MemoryStream capture = new();
+        context.Response.Body = capture;
+        try
+        {
+            await next(context);
+        }
+        finally
+        {
+            capture.Position = 0;
+            string responseBody = await ReadStreamAsync(capture);
+            if (responseBody.Length > 0)
+            {
+                logger.LogDebug("Response body: {Body}", responseBody);
+            }
+            capture.Position = 0;
+            await capture.CopyToAsync(originalBody);
+            context.Response.Body = originalBody;
+        }
+    }
+
+    private static async Task<string> ReadStreamAsync(Stream stream)
+    {
+        using StreamReader reader = new(stream, Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: false, bufferSize: -1, leaveOpen: true);
+        return await reader.ReadToEndAsync();
     }
 }
