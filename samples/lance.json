@@ -4,8 +4,16 @@
     "timeoutSeconds": 30
   },
   "remoteClient": {
-    "executable": "moonlight.exe",
-    "defaultFlags": ["--fps", "60", "--video-codec", "HEVC", "--bitrate", "80000", "--no-vsync"]
+    "executable": "C:\\Program Files\\Moonlight Game Streaming\\moonlight.exe",
+    "defaultFlags": [
+      "--fps",
+      "60",
+      "--video-codec",
+      "HEVC",
+      "--bitrate",
+      "80000",
+      "--no-vsync"
+    ]
   },
   "ui": {
     "color": true
