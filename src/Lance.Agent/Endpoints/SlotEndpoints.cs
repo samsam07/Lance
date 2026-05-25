@@ -146,7 +146,7 @@ internal static class SlotEndpoints
     }
 
     private static Results<Ok<ConfigUrlResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, RedirectHttpResult> GetSlotConfig(
-        int id, string? redirect, ISlotScanner scanner, AgentConfig config)
+        int id, string? redirect, ISlotScanner scanner)
     {
         IReadOnlyList<SlotDto> slots = scanner.Scan();
         SlotDto? slot = null;
@@ -178,7 +178,7 @@ internal static class SlotEndpoints
             });
         }
 
-        string url = $"https://{config.Listen.Host}:{slot.Port + 1}";
+        string url = $"https://{slot.Host}:{slot.Port + 1}";
 
         if (string.Equals(redirect, "1", StringComparison.Ordinal))
         {
