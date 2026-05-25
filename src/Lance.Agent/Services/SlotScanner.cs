@@ -74,7 +74,9 @@ internal sealed class SlotScanner : ISlotScanner
     private SlotDto BuildSlot(int id, string filePath, bool isTemplate)
     {
         Dictionary<string, string> configValues = InitializationFileReader.Read(filePath);
-        _ = int.TryParse(configValues.GetValueOrDefault("port", "0"), out int port);
+        int port = int.TryParse(configValues.GetValueOrDefault("port", ""), out int parsedPort)
+            ? parsedPort
+            : SunshineDefaults.StreamingPort;
 
         string name = isTemplate
             ? _config.Slots.TemplateName
@@ -84,7 +86,7 @@ internal sealed class SlotScanner : ISlotScanner
         int? processId = null;
         DateTimeOffset? startedAt = null;
 
-        if (!isTemplate && _tracker.TryGet(id, out SlotProcess? entry) && ProcessHelper.IsAlive(entry!.Pid))
+        if (_tracker.TryGet(id, out SlotProcess? entry) && ProcessHelper.IsAlive(entry!.Pid))
         {
             status = "Running";
             processId = entry.Pid;

@@ -67,12 +67,8 @@ internal sealed class SlotAllocator : ISlotAllocator
         Dictionary<string, string> templateValues = InitializationFileReader.Read(templatePath);
         if (!int.TryParse(templateValues.GetValueOrDefault("port", ""), out int templatePort))
         {
-            _logger.LogWarning("Allocation failed: {ErrorCode} — {ErrorMessage}", "template_missing", "Template config does not contain a valid 'port' value.");
-            return new AllocateResult
-            {
-                ErrorCode = "template_missing",
-                ErrorMessage = "Template config does not contain a valid 'port' value."
-            };
+            templatePort = SunshineDefaults.StreamingPort;
+            _logger.LogInformation("Template config has no 'port' value; using Sunshine default {Port}", templatePort);
         }
 
         IReadOnlyList<SlotDto> existing = _scanner.Scan();

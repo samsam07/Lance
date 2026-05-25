@@ -56,13 +56,8 @@ internal sealed class SlotLifecycle : ISlotLifecycle
         Dictionary<string, string> configValues = InitializationFileReader.Read(configPath);
         if (!int.TryParse(configValues.GetValueOrDefault("port", ""), out int port))
         {
-            _logger.LogWarning("Slot {SlotId} start refused: {ErrorCode}", slotId, "config_invalid");
-            return new LifecycleResult
-            {
-                ErrorCode = "config_invalid",
-                ErrorMessage = $"Slot {slotId} config does not contain a valid port.",
-                HttpStatus = 500
-            };
+            port = SunshineDefaults.StreamingPort;
+            _logger.LogInformation("Slot {SlotId} config has no 'port' value; using Sunshine default {Port}", slotId, port);
         }
 
         _logger.LogInformation("Starting slot {SlotId} (config {ConfigName}, port {Port})", slotId, configName, port);
@@ -72,7 +67,8 @@ internal sealed class SlotLifecycle : ISlotLifecycle
         {
             FileName = exePath,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = _config.RemoteServer.InstallDir
         };
         psi.ArgumentList.Add(configPath);
 

@@ -51,7 +51,9 @@ internal static class ProcessAdopter
             if (configPath is not null && File.Exists(configPath))
             {
                 Dictionary<string, string> values = InitializationFileReader.Read(configPath);
-                int.TryParse(values.GetValueOrDefault("port", "0"), out port);
+                port = int.TryParse(values.GetValueOrDefault("port", ""), out int parsedPort)
+                    ? parsedPort
+                    : SunshineDefaults.StreamingPort;
             }
 
             DateTimeOffset startedAt = GetStartTime(pid);
