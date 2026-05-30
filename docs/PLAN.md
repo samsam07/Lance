@@ -1,10 +1,11 @@
 # Lance — Plan
 
-Development proceeds in phases. The body analogy:
-- **Phase 1 — Walking skeleton:** bare bones that walk. No auth, no service, no sessions.
-- **Phase 2 — Alpha:** flesh on the skeleton — auth + core features.
-- **Phase 3 — Beta:** a naked body — functional but not public-ready.
-- **Phase 4 — Release:** dressed and ready for the world.
+Development proceeds in phases. These descriptions serve as **task-attribution guidelines** — assign new work to the earliest phase whose scope it fits; defer only when a genuine prerequisite is missing.
+
+- **Phase 1 — MVP:** Proves the concept with the smallest working slice. Slot lifecycle (allocate / start / stop / deallocate) over plain HTTP; no auth, no sessions, no service install. A task belongs here if it is required to get `lance connect` working end-to-end on one machine pair.
+- **Phase 2 — Alpha:** Makes the tool fully functional for personal use. Auth/TLS, slot Connected state, client-driven connect/disconnect, and platform completions deferred from Phase 1. A task belongs here if it builds on the Phase-1 slot layer and does not require a session abstraction.
+- **Phase 3 — Beta:** Makes the tool shareable. Feature-complete but not yet public-ready — integration tests, session layer (monitor↔slot mapping, state files), polish, and anything that requires Phase-2 features to be stable first. A task belongs here if it adds the session abstraction or is about hardening rather than new capability.
+- **Phase 4 — Release:** Hardens and packages for distribution. Windows service / daemon install, auto-managing the Apollo service/watchdog (`[DEFER-SVC]`), installer, and public-facing hardening. A task belongs here if it changes the deployment/install model rather than application logic.
 
 Only Phase 1 is detailed below. Later phases are deliberately left as one-liners
 until Phase 1 ships — to avoid planning ahead of what we've learned.
@@ -37,10 +38,6 @@ to validate that orchestrating parallel Apollo + Moonlight actually works.
 - `[VERIFY-APOLLO]` — Apollo's Linux privilege model is untested. Must be verified
   on Linux before Slice 4 (start/stop) is implemented for that platform. Until
   then, Slice 4 targets Windows only.
-- `[VERIFY-MUTEX]` — Named-mutex cross-process semantics on Linux/.NET are
-  unverified. Must be verified before Slice 6 (client locking) is implemented for
-  Linux. Fallback if unreliable: PID-bearing lock file (read PID on acquire; if
-  alive → exit 2, if dead → reclaim).
 
 **Platform deferrals (Slice 4):**
 - `[DEFER-WIN-ADOPT]` — Windows process adoption is a no-op in Phase 1.
@@ -100,66 +97,45 @@ Unit and integration tests are deferred — no test code is written during Phase
 
 ## Phase 2 — Alpha
 
-**Goal:** a fully functional personal tool. Sessions track connections, auth/TLS
-secures the API, and `connect`/`disconnect` use the proper fat-agent flow.
+**Goal:** a fully functional personal tool. Auth/TLS secures the API, slot
+Connected state enables free-slot detection, and `connect`/`disconnect` use the
+full client-driven flow with `--monitors` and `--slots`.
 
 **In scope**
 - Auth + TLS on the agent API.
-- Agent sessions layer: `POST /sessions`, `GET /sessions[/{id}]`,
-  `DELETE /sessions/{id}`.
-- Client: full `connect` (fat-agent, `--monitors`), `disconnect`, `sessions`,
-  enhanced `status`.
-- Client state file + named mutex (single-instance guard, crash recovery).
+- Agent: slot `Connected` state — TCP probe on slot base port at query time;
+  `SlotDto.Status` gains `"Connected"`.
+- Client: full `connect` (client-driven, `--monitors`, free-slot check),
+  `disconnect` (`--slots`, `--keep-running`, `--purge`), enhanced `status`.
 - Platform completions deferred from Phase 1: Windows process adoption
   (`[DEFER-WIN-ADOPT]`), Linux graceful SIGTERM stop (`[DEFER-LINUX-SIGTERM]`).
-- Resolution of `[VERIFY-MUTEX]` (Linux named-mutex vs PID lock file).
+- Resolution of `[INVESTIGATE-STOP]` (Apollo graceful stop — fix the stop path).
 - Unit and integration tests (first test code written this phase).
 
 **Out of scope (deferred)**
 - Windows service / daemon install (Phase 4).
 - Auto-managing the Apollo service/watchdog `[DEFER-SVC]` (Phase 4).
-- Audio-master edge case across simultaneous sessions `[DEFER-1]` (later phase).
+- Session layer: `POST /sessions`, state files, monitor↔slot mapping (later phase).
 - `[VERIFY-APOLLO]` Linux agent privilege model (verify before Linux deployment).
 
-**Hard prerequisite — `[RESEARCH-1]`**
-> Apollo↔Moonlight connection detection is unresolved. This research spike
-> **must be completed as Slice 1** before any session code is written — the
-> result directly shapes the session architecture. If reliable detection is
-> impossible, session state becomes best-effort (record slots/PIDs but cannot
-> confirm live connections). The spike produces findings documented in
-> ARCHITECTURE.md; it produces no code.
 
 ### Phase 2 — slice breakdown (review gates)
 
 Same rules as Phase 1: one slice at a time, review gate after each.
 
-1. **Research spike — `[RESEARCH-1]`** *(no code).*
-   Investigate whether an Apollo instance with a live Moonlight client is
-   detectable (network probe, Apollo API, process signals, etc.). Document
-   findings and the chosen detection strategy (or confirmed impossibility) in
-   ARCHITECTURE.md. **All session slices depend on this outcome.**
-
-2. **Platform completions.**
+1. **Platform completions + stop fix.**
    - `[DEFER-WIN-ADOPT]` — Windows process adoption: enumerate running
      `sunshine.exe` via `Process.GetProcessesByName`, attribute each to a slot
      by config name (standard) or observed port (fallback), register as adopted
      (id ≥1000 if non-standard). Mirrors the Linux path already implemented.
    - `[DEFER-LINUX-SIGTERM]` — Send SIGTERM before falling back to Kill on Linux
      stop. Requires P/Invoke (`kill(pid, SIGTERM)`).
-   - `[VERIFY-MUTEX]` — Determine whether `System.Threading.Mutex` is reliably
-     cross-process on Linux/.NET. If yes, use it for the client mutex. If no,
-     fall back to a PID-bearing lock file (read PID; alive → exit 2, dead →
-     reclaim). Document decision in SPEC.
-   - `[INVESTIGATE-STOP]` — In Phase 1 testing, stopping a running slot
-     consistently exceeds the 10 s graceful timeout and falls through to
-     force-kill. Investigate why Apollo does not respond to the graceful close
-     signal (`CloseMainWindow` on Windows / SIGTERM on Linux once
-     `[DEFER-LINUX-SIGTERM]` is resolved). Determine whether the timeout needs
-     tuning, whether a different shutdown signal is required, or whether Apollo
-     simply does not support graceful termination. Document findings and correct
-     the stop path accordingly.
+   - `[INVESTIGATE-STOP]` — `CloseMainWindow` is likely a no-op on Apollo's
+     tray/headless process; the 10 s graceful wait is wasted every stop. Fix:
+     check `CloseMainWindow()` return value — if `false`, skip the wait and
+     proceed directly to `Kill()`.
 
-3. **Auth + TLS (agent + client).**
+2. **Auth + TLS (agent + client).**
    - Agent: `tls{}` config block (cert path, key path); enforce HTTPS on the
      listener. `auth{}` config block (bearer token); validate `Authorization:
      Bearer <token>` on all non-health endpoints.
@@ -167,52 +143,37 @@ Same rules as Phase 1: one slice at a time, review gate after each.
      cert validation configurable (strict default; `insecure` flag for dev).
    - `GET /health` remains unauthenticated (liveness probe).
 
-4. **Agent sessions layer.**
-   `POST /sessions` — fat-agent shorthand: receives `{ monitorCount }`,
-   allocates + starts slots internally, returns a session manifest (session id,
-   per-slot `{ slotId, host, port }`). Partial success per ARCHITECTURE:
-   returns whatever succeeded; Slot-0 failure → session runs without audio (warn,
-   continue). Session state stored in agent memory (Phase 2); disk persistence
-   is Phase 3+. `GET /sessions`, `GET /sessions/{id}`,
-   `DELETE /sessions/{id}` (stops all slots in the session). *(Architecture-zone
-   — review closely: the partial-success invariant and session state model.)*
+3. **Agent: slot `Connected` state.** *(Architecture-zone.)*
+   When serving `GET /slots` or `GET /slots/{id}`, probe the slot's base port for
+   an ESTABLISHED TCP connection from a remote IP. If found →
+   `Status = "Connected"`; running but no connection → `Status = "Running"`.
+   `SlotDto.Status` gains the `"Connected"` value.
 
-5. **Client state file + named mutex.**
-   - Named mutex `Global\Lance.Client` (Windows) / strategy from Slice 2
-     `[VERIFY-MUTEX]` finding (Linux). Acquired on `connect`; held until
-     `disconnect` or process death. Already-held → exit 2.
-   - `client-state.json` at platform paths from SPEC. Written on `connect` (session
-     id, slot↔Moonlight-PID mapping, `startedAt`, `agentUrl`). Read on `disconnect`
-     and `status`. Stale check: if all recorded Moonlight PIDs are dead → treat as
-     no session, clean up, proceed.
-   - Schema: `{ schemaVersion, startedAt, agentUrl, sessionId, monitors: [{ monitorId, slotId, apolloPort, moonlightPid }] }`.
-
-6. **Client: full session commands + enhanced status.** *(Architecture-zone.)*
-   - `lance connect [--monitors <list>] [--session <id>]` — calls `POST /sessions`,
-     receives manifest, launches Moonlight per slot, writes state file. `--monitors`
-     is comma-separated 1-indexed physical monitor IDs; default: all physical
-     monitors (requires OS display enumeration). Replaces `--count`.
-   - `lance disconnect [--session <id>] [--keep-running] [--purge]` — reads state
-     file, calls `DELETE /sessions/{id}`, stops local Moonlight PIDs (unless
-     `--keep-running`), removes state file (unless `--purge` skips API call).
-   - `lance sessions [--id <id>]` — calls `GET /sessions[/{id}]`, renders table.
-   - `lance status` (enhanced) — unified view: slots + sessions + local Moonlight
-     PIDs cross-referenced from state file.
+4. **Client: connect + disconnect + enhanced status.** *(Architecture-zone.)*
+   - `lance connect [--monitors <list>]` — client-driven: `GET /slots` to count
+     free slots, `POST /slots` to allocate if short, `POST /slots/{id}/start`
+     per Allocated slot, launch Moonlight per started slot. Free-slot check: if
+     all slots are `Connected` and max is reached → exit 2 (no free slots).
+     `--monitors` is comma-separated 1-indexed physical monitor IDs; default: all
+     physical monitors (requires OS display enumeration). Replaces `--count`.
+   - `lance disconnect [--slots <list>] [--keep-running] [--purge]` — stop target
+     slots on agent, kill matching Moonlight processes by command-line port match.
+     `--slots`: target specific slot IDs (default: all running/connected).
+     `--purge`: also deallocate after stopping. `--keep-running`: stop Apollo but
+     do not kill Moonlights.
+   - `lance status` (enhanced) — slots (Allocated / Running / Connected) + local
+     Moonlight PIDs cross-referenced by slot port via command-line inspection.
 
 ### Review-depth guide (Phase 2)
-- **Research** (1): findings doc only — review the documented strategy, not code.
-- **Platform completions** (2): moderate — adoption logic is subtle; review closely.
-- **Auth/TLS** (3): moderate — correctness matters; no crypto invention.
-- **Sessions agent** (4): **architecture-zone** — partial-success invariant is
-  the correctness-critical part.
-- **State file + mutex** (5): moderate — locking model and stale-check logic.
-- **Session commands** (6): **architecture-zone** — failure paths, state
-  consistency, and the `--monitors` OS enumeration are the tricky parts.
+- **Platform completions + stop fix** (1): moderate — adoption logic is subtle; review closely.
+- **Auth/TLS** (2): moderate — correctness matters; no crypto invention.
+- **Slot Connected state** (3): **architecture-zone** — TCP probe logic and the new Status value; review closely.
+- **Connect + disconnect** (4): **architecture-zone** — free-slot logic, partial-success, and Moonlight process matching are the correctness-critical parts.
 
 ### Tests
-Phase 2 is when test code is first written. Aim: unit tests for the session
-layer partial-success logic (Slice 4) and client state file read/write (Slice 5)
-at minimum. Integration tests deferred to Phase 3.
+Phase 2 is when test code is first written. Aim: unit tests for the slot
+Connected-state TCP probe logic (Slice 3) and the connect free-slot check +
+partial-success logic (Slice 4) at minimum. Integration tests deferred to Phase 3.
 
 ## Phase 3 — Beta
 Feature-complete but not public-ready. *(TBD.)*

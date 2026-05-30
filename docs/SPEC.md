@@ -27,7 +27,7 @@ public sealed record SlotDto
     public string Name { get; init; }       // "Lance-Template" (0), "Lance-{N}" (clones)
     public string Host { get; init; } // resolved host the client uses to reach this slot's Apollo instance
     public int Port { get; init; }
-    public string Status { get; init; }     // "Allocated" | "Running"
+    public string Status { get; init; }     // "Allocated" | "Running" | "Connected"
     public string ConfigPath { get; init; }
     public string ConfigName { get; init; } // actual file name; "sunshine_{id}.conf" for standard slots
     public bool IsTemplate { get; init; }   // true only for slot 0
@@ -39,8 +39,10 @@ public sealed record SlotDto
 ```
 `Host` is populated by the agent from its configured `listen.host`; if that value is `0.0.0.0`, `*`, or empty, the agent substitutes the machine's resolved hostname so the client always receives a usable address.
 Slot 0: always allocated; can start/stop; **never deallocated**; its config file
-is **never modified**. `Status = Running` is derived from a live PID. Authoritative
-slot state = on-disk config files (not stored by agent).
+is **never modified**. `Status = "Running"` is derived from a live PID;
+`Status = "Connected"` is derived from a TCP probe on the slot's base port
+(ESTABLISHED connection from a remote IP), performed by the agent at query time.
+Authoritative slot state = on-disk config files (not stored by agent).
 
 **Adopted non-standard slots:** a running `sunshine.exe` whose config does **not**
 match `sunshine_{id}.conf` is adopted with a **reserved int id starting at 1000**
@@ -107,8 +109,6 @@ the template, append it after the last line. Preserve template line ordering.
 - `GET /slots/{id}/config` — `{ "url": "https://host:<port+1>" }`. Not
   running → `409 slot_not_running`; `?redirect=1` → `302`.
 
-> **Sessions endpoints are Phase 2+** — and when added, follow ARCHITECTURE.md's
-> **partial-success** policy, NOT the old spec's all-or-nothing/rollback.
 
 ## Client CLI (Phase 1)
 
@@ -128,8 +128,7 @@ the template, append it after the last line. Preserve template line ordering.
 > monitor IDs, default: all physical monitors), which adds OS-level display
 > enumeration. Do not design `--count` for longevity; it will be dropped.
 
-**Exit codes:** 0 success · 1 generic · 2 session active / concurrent invocation
-· 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
+**Exit codes:** 0 success · 1 generic · 2 no free slots (all running slots are connected) · 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
 required state · 7 config resolution failed.
 
 ## Config files
@@ -175,34 +174,6 @@ Two distinct host:port pairs — do not conflate:
   **is slot-aware**: it consumes the returned slot info to launch the matching
   Moonlight.
 
-## Client state file + locking (Phase 1)
-
-- Records the active session: per monitor `{ monitorId, slotId, apolloPort, moonlightPid }`,
-  plus `schemaVersion`, `startedAt`, `agentUrl`.
-- Paths: Linux `$XDG_RUNTIME_DIR/lance/client-state.json` (fallback
-  `/tmp/lance-{uid}/client-state.json`); Windows
-  `%LOCALAPPDATA%\Lance\client-state.json`.
-- **Mutual exclusion:** a **named mutex** (e.g. `Global\Lance.Client`) acquired on
-  start. Already held → another instance is live → exit 2. The OS auto-releases
-  it on process death (no stale-lock problem, no PID-reuse edge case).
-  - `[VERIFY-MUTEX]` — named mutexes are first-class on Windows but **not
-    reliably system-wide on Linux/.NET** (backed by a `/tmp` file, limited
-    cross-process semantics). Verify on Linux; if it doesn't hold, **fall back to
-    a PID-bearing lock file** (file holds owner PID; on acquire, if present check
-    PID liveness — alive → exit 2, dead → reclaim stale).
-- **Persistence/recovery** is the state file itself (`client-state.json`), not the
-  mutex — crash recovery reads it to reattach to running Moonlight PIDs.
-
-> **Naming:** agent and client may run on the **same machine**, so all component
-> files and primitives are component-scoped — `client-state.json` /
-> `agent-state.json` (Phase 2+), mutex `Lance.Client` / `Lance.Agent` — never
-> shared bare names.
-
-> **Agent exclusion (optional/defensive):** the agent runs as a service, so its
-> manager (systemd / Windows Services) already enforces single-instance. A
-> `Lance.Agent` mutex may be added defensively but is not mandatory in Phase 1.
-- **Stale check:** before refusing "session active", verify recorded Moonlight
-  PIDs are alive; if all dead → treat as no session, clean up, proceed.
 
 ## Agent lifecycle (Phase 1)
 
@@ -264,8 +235,7 @@ Phase-1 codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
 `max_slots_exceeded`, `io_error`, `internal_error`.
 *(`slot_in_use` = `DELETE /slots/{id}` on a running slot; use
 `POST /slots/{id}/force-deallocate` to stop-then-deallocate instead.)*
-*(Auth/session codes — `invalid_token`, `invalid_monitor_count`, `connect_failed`
-— are Phase 2+.)*
+*(Auth code `invalid_token` is Phase 2+.)*
 
 ## Build / project setup
 

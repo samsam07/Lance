@@ -30,30 +30,14 @@ of Apollo config files needed to launch one instance.
 - **Slot start:** launch an Apollo instance from the slot's config (→ "running slot").
 - **Slot stop:** stop that slot's Apollo instance.
 
-### Session
+**Audio:** Slot 0 is the only slot with audio enabled. All clone slots have
+`stream_audio = disabled` (cloning mutation rule). This is fixed for Phase 1 and 2.
 
-A session is primarily an **ID** tracking active Moonlight↔Apollo connections,
-generated as connections are established. Sessions are per-connection by default,
-but can be **grouped** under one ID two ways:
-- `POST /sessions` — group all of a multi-monitor request under one id at once.
-- `POST /slots/{id}/start` with a session id — group connections **one at a
-  time** by tagging each started slot with the same id.
-
-**Audio master:** in a grouped session, exactly one slot carries audio (the
-master), so audio isn't duplicated across connections. The master is the slot
-serving the session's **primary screen**. By default this is **Slot 0**, and
-**for early phases the master is fixed to Slot 0**; making the master
-configurable (any primary screen) comes later.
-
-> **INVARIANT:** A session is valid with **zero running master slots**. If the
-> master fails, the session runs **without audio** (warn + continue). Audio is
-> best-effort, never required. Do not treat a masterless session as broken.
-
-**Open research item (blocks session work):** there is no known direct way to tell
-whether an Apollo instance has a live Moonlight client. Candidate fallback:
-observe the Moonlight port for activity. **This must be resolved by a research
-spike before any session code is written** — the result steers the session
-architecture. `[RESEARCH-1]`
+**Slot connected state:** A running slot is either **open** (awaiting a Moonlight
+client) or **connected** (has an active client). The agent derives this by
+TCP-probing the slot's base port for an ESTABLISHED connection from a remote IP,
+at query time. `SlotDto.Status` = `"Allocated"` | `"Running"` | `"Connected"`.
+`[RESEARCH-1]` resolved.
 
 ## Lance Agent
 
@@ -71,7 +55,7 @@ canonical contract; this list is the behavioral overview)*
 - `GET /slots` — list all slots and their status.
 - `POST /slots` — allocate slots to reach a target count. **Idempotent**
   (count=3 ensures 3 exist).
-- `GET /slots/{id}` — slot detail (running/stopped, active client, session id).
+- `GET /slots/{id}` — slot detail (status, active client).
 - `DELETE /slots/{id}` — deallocate; **refuses if running** (stop first).
 - `POST /slots/{id}/force-deallocate` — stop if running, then deallocate.
 - `POST /slots/{id}/start` — start an Apollo instance for the slot.
@@ -79,25 +63,12 @@ canonical contract; this list is the behavioral overview)*
 - `GET /slots/{id}/config` — link to the Apollo config page (slot must be
   running; `?redirect=1` supported).
 
-**Sessions** *(Phase 2+)*
-- `GET /sessions` — list active sessions (IDs, slots, …).
-- `POST /sessions` — create a connection session. Param: monitor count. A
-  **fat-agent shorthand** that allocates + starts slots under one session id
-  (generated internally or supplied by client, then returned).
-- `GET /sessions/{id}` — session detail.
-- `DELETE /sessions/{id}` — disconnect (stop) all slots in the session.
-
-> **Architecture decision — fat agent:** the agent owns orchestration. Clients
-> request outcomes ("give me a 3-monitor session"); the agent performs the
-> allocate+start sequence and handles partial failure server-side. Clients do
-> not drive per-slot steps. (See connect flow.)
 
 ### State management
 
 Slot state is **not stored** by the agent — it is inferred from Apollo's config
 files on disk. Slot 0 is `sunshine.conf`; clones are `sunshine_{id}.conf`. Slots
-are a **pool where order is irrelevant except Slot 0**. Slot 0 is special: it
-allows audio and acts as the audio master in grouped sessions.
+are a **pool where order is irrelevant except Slot 0**.
 
 > **INVARIANT:** Slot id drives port math (`template_port − N×portStep`) **only
 > for Lance-allocated standard slots**. Adopted/non-standard slots (id ≥1000,
@@ -105,19 +76,7 @@ allows audio and acts as the audio master in grouped sessions.
 > mutates their port or config, and never starts/allocates/deallocates them
 > (list + stop only).
 
-> Known issue: the audio-master model has an edge case across multiple
-> simultaneous sessions. Deferred to a later phase. `[DEFER-1]`
-
-Session state *(Phase 2+)* is agent-owned, stored at a configured path, guarded
-by locks against races. On agent restart, sessions are reconciled: orphaned
-sessions (whose live connections no longer exist) are removed, with clear logs.
-If session state is lost, session ids are recalculated individually, logged
-clearly.
-
-> Slot 0 is the audio master **by default and for early phases**. Later, the
-> master is whichever slot serves the session's primary screen (configurable).
-
-*(Exact state-file paths, log paths, and retention live in SPEC, not here.)*
+*(Log paths and retention live in SPEC.)*
 
 ## Lance Client
 
@@ -136,62 +95,66 @@ no port math; the agent supplies every Apollo host:port.
 **Slots** — mirror the agent slot endpoints.
 
 **Status**
-- `lance status` — unified view: slots + sessions + local Moonlight
-  PIDs in one place. (Primary Phase-1 status view, since Phase 1 has no sessions.)
+- `lance status` — unified view: slot states (Allocated / Running / Connected) +
+  local Moonlight PIDs cross-referenced by slot port.
 
-**Sessions** *(Phase 2+)*
-- `lance sessions [--id xxx]`
-- `lance connect [options] [--options "<moonlight-options>"]`
+**Connect / Disconnect** *(Phase 2+)*
+- `lance connect [--monitors <list>] [--options "<moonlight-options>"]`
   - `--monitors <list>` — comma-separated 1-indexed monitor IDs. Default: all
     physical monitors.
-  - `--session xxx` — connect with a specific session id (error if it already
-    exists on the agent).
   - Moonlight passthrough examples: `--bitrate <kbps>`, `--video-codec
     <HEVC|H264|AV1>`, `--fps <n>`, `--resolution <WxH>`, etc.
-- `lance disconnect [--session xxx] [--keep-running] [--purge]`
+- `lance disconnect [--slots <list>] [--keep-running] [--purge]`
+  - `--slots <list>` — target specific slot IDs. Default: all running/connected slots.
+  - `--keep-running` — stop Apollo slots on the agent but do not kill Moonlight processes.
+  - `--purge` — stop then deallocate slots (full teardown). Slot 0 excluded from deallocation.
 
-### State management *(Phase 2+)*
-
-Client session state stores active connections with launched Moonlight PIDs,
-guarded by locks. Recovery (after a client crash/restart) depends on the
-connection-detection research `[RESEARCH-1]` and is **deferred** until that is
-resolved. *(Exact paths live in SPEC.)*
 
 ## Flows
 
-### connect (fat agent, Phase 2+ shape)
+### connect (Phase 2+ shape)
 
 Precondition: Moonlight executable exists; client can reach the agent.
 
 1. **Resolve target monitors → count N.**
    *fails if:* a requested monitor id is invalid → *on failure:* log, drop it
    from N, continue with the rest.
-2. **`POST /sessions` (count=N).** Agent allocates + starts N slots internally.
-   *fails if:* a slot fails to allocate/start → *on failure:* **partial success** —
-   agent keeps the slots that came up, returns which succeeded/failed. No
-   rollback. (Master/Slot-0 failure → session runs without audio; warn, continue.)
-3. **Agent returns the connection manifest** (per monitor: slot id, Apollo port, …).
-   *fails if:* manifest missing entries → *on failure:* log; launch only the
-   monitors that have valid details.
-4. **Launch Moonlight per returned slot.**
-   *fails if:* a Moonlight process fails to launch → *on failure:* warn, continue
-   with the rest (partial success).
-5. **Record session state** (session id, slot↔PID mapping).
-   *fails if:* state write fails → *on failure:* log a **warning**, continue
-   (the connection still works; recovery is degraded).
+2. **`GET /slots`.** Count free slots: `Allocated` or `Running` (not `Connected`).
+   If free < N and the max-slots ceiling prevents allocating more → exit 2
+   `no_free_slots` (all usable slots are connected; user must disconnect first).
+3. **`POST /slots` (count = existing + shortfall).** Allocate any missing slots so
+   the pool reaches N non-connected. Idempotent if the pool is already large enough.
+   *fails if:* allocation fails → log, continue with however many free slots remain
+   (partial success).
+4. **`POST /slots/{id}/start` for each Allocated target slot.** Skip slots already `Running`.
+   *fails if:* a slot fails to start → warn, drop from target list, continue
+   (partial success).
+5. **Launch Moonlight per started slot** (`moonlight stream <host>:<port> Desktop …`).
+   *fails if:* a Moonlight process fails to launch → warn, continue with the rest
+   (partial success).
 
-Post-state: every slot that came up has a running Moonlight and is recorded;
-failed slots/monitors are logged and simply absent. The session may be partial.
+Post-state: every slot that came up has a running Moonlight; failed slots are
+logged and absent. The setup may be partial.
 
-> **Failure policy — partial success (overturns old all-or-nothing / D13).**
-> Monitors are independent and individually useful; 2 of 3 beats 0 of 3. Never
-> roll back working slots to satisfy an all-or-nothing rule. Master failure
-> degrades audio only, never fails the session.
+> **Failure policy — partial success.** Monitors are independent; 2 of 3 beats 0.
+> Never roll back working slots.
 
 ### disconnect (Phase 2+)
 
-`DELETE /sessions/{id}` stops all slots in the session; client stops the matching
-Moonlight PIDs. Best-effort per slot (a failed stop is logged, others proceed).
+Target: all `Running`/`Connected` slots, or only those in `--slots <list>` if specified.
+
+For each target slot:
+1. `POST /slots/{id}/stop` (agent).
+2. Find and kill the matching Moonlight process (client): enumerate `moonlight`
+   processes, match by `<host>:<port>` in the process command line.
+
+**`--purge`:** after stopping, call `DELETE /slots/{id}` for each stopped slot.
+Slot 0 is excluded from deallocation.
+
+**`--keep-running`:** perform step 1 only — stop Apollo slots but do not kill
+Moonlight processes.
+
+Best-effort per slot: a failed stop is logged; other slots proceed.
 
 ### agent startup (Phase 1)
 
@@ -222,8 +185,12 @@ N is supplied by the user via `--count <N>` (Phase-1 temporary flag). Phase 2
 replaces this with `--monitors <list>` — see SPEC for the full note.
 
 ## Notes / open items
-- `[RESEARCH-1]` Apollo↔Moonlight connection detection — research spike before
-  session code.
-- `[DEFER-1]` Audio-master edge case across simultaneous sessions — later phase.
-- Auth: old SPEC assumed Bearer auth in Phase 1; **current decision is no auth in
-  Phase 1** (added in Phase 2). Discrepancy noted for SPEC reconciliation.
+- `[RESEARCH-1]` **Resolved.** TCP probe on the slot's base port (ESTABLISHED from
+  a remote IP) is the detection mechanism. Agent probes at query time.
+- `[DEFER-1]` **Closed.** Moot without sessions — slot 0 is the audio slot; no
+  multi-session conflict is possible.
+- `[INVESTIGATE-STOP]` — Apollo graceful stop consistently times out in Phase 1
+  testing (`CloseMainWindow` is likely a no-op on Apollo's tray/headless process).
+  Phase 2 Slice 1 fixes this: check `CloseMainWindow()` return value — if `false`,
+  skip the graceful wait and proceed directly to `Kill()`.
+- Auth: no auth in Phase 1; added in Phase 2.
