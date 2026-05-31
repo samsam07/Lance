@@ -23,7 +23,7 @@ internal sealed class BearerTokenMiddleware : IMiddleware
             return;
         }
 
-        if (string.IsNullOrEmpty(_config.Auth.Token))
+        if (string.IsNullOrEmpty(_config.Auth?.Token))
         {
             await next(context);
             return;
@@ -32,7 +32,7 @@ internal sealed class BearerTokenMiddleware : IMiddleware
         string? authHeader = context.Request.Headers.Authorization;
         bool valid = authHeader is not null
             && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            && authHeader["Bearer ".Length..].Trim() == _config.Auth.Token;
+            && authHeader["Bearer ".Length..].Trim() == _config.Auth!.Token;
 
         if (!valid)
         {

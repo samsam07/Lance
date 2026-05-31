@@ -6,7 +6,7 @@ public sealed record AgentConfig
 {
     public ListenConfig Listen { get; init; } = new();
     public TlsConfig Tls { get; init; } = new();
-    public AuthConfig Auth { get; init; } = new();
+    public AuthConfig? Auth { get; init; }
     public RemoteServerConfig RemoteServer { get; init; } = new();
     public SlotsConfig Slots { get; init; } = new();
     public AgentLoggingConfig Logging { get; init; } = new();
@@ -50,7 +50,7 @@ public sealed record TlsConfig
 
 public sealed record AuthConfig
 {
-    public string Token { get; init; } = string.Empty;
+    public required string Token { get; init; }
 }
 
 public sealed record AgentLoggingConfig
