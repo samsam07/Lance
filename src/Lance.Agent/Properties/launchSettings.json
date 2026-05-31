@@ -2,11 +2,11 @@
   "profiles": {
     "Lance.Agent": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "launchBrowser": false,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:7007;http://localhost:7008"
+      "applicationUrl": "https://localhost:9876"
     }
   }
 }

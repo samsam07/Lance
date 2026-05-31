@@ -1,5 +1,4 @@
 using System.Net;
-using System.Security.Cryptography.X509Certificates;
 using Lance.Agent.Configuration;
 using Lance.Agent.Endpoints;
 using Lance.Agent.Infrastructure;
@@ -33,14 +32,7 @@ internal static class Program
                 ? parsed
                 : LogEventLevel.Information;
 
-            bool certExisted = File.Exists(config.Tls.CertPath);
-            X509Certificate2 cert = SelfSignedCertificate.LoadOrCreate(config.Tls.CertPath);
-            Log.Information(certExisted
-                ? "TLS certificate loaded from {CertPath}"
-                : "Self-signed TLS certificate generated at {CertPath}",
-                config.Tls.CertPath);
-
-            if (!string.IsNullOrEmpty(config.Auth.Token))
+            if (!string.IsNullOrEmpty(config.Auth?.Token))
                 Log.Information("Bearer token authentication is enabled");
             else
                 Log.Warning("No auth token configured — agent API is open to all callers");
@@ -59,7 +51,7 @@ internal static class Program
 
                 serverOptions.Listen(listenAddress, config.Listen.Port, listenOptions =>
                 {
-                    listenOptions.UseHttps(cert);
+                    listenOptions.UseHttps();
                 });
             });
 
