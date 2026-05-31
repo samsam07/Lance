@@ -164,6 +164,23 @@ required state · 7 config resolution failed.
 append after `defaultFlags` (later args win in Moonlight). TLS cert validation is
 unconditionally disabled in Phase 2 (self-signed cert); `agent.url` must use `https://`.
 
+### Linux file-path conventions `[DEFER-PATHS]`
+
+All default file paths follow Windows / "run from a folder" conventions and are
+acceptable for Phase 2 (both binaries run manually). They need revisiting when a
+proper daemon or service install is added. Deferred items:
+
+| Item | Current path (Phase 2) | Linux standard |
+|---|---|---|
+| Agent config file | beside binary (`AppContext.BaseDirectory`) | `/etc/lance-agent/` (system) or `~/.config/lance-agent/` (user) |
+| TLS certificate (`lance-agent.pfx`) | beside binary | `/etc/lance-agent/` or `/var/lib/lance-agent/` |
+| Agent log file (`lance-agent.log`, relative) | cwd / beside binary | `/var/log/lance-agent/` |
+| Client config file (`lance.json`) | beside binary | `~/.config/lance/` (XDG) |
+| Apollo install / config paths (agent defaults) | `ProgramFiles\Apollo` | empty string; `[VERIFY-APOLLO]` unresolved |
+
+Agent paths: defer to **Phase 4** (daemon/service install). Client config path:
+defer to **Phase 3** (XDG compliance).
+
 ## Moonlight launch
 
 The client launches one Moonlight per slot, using **that slot's Apollo host+port**

@@ -209,6 +209,12 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   testing (`CloseMainWindow` is likely a no-op on Apollo's tray/headless process).
   Phase 2 Slice 1 fixes this: check `CloseMainWindow()` return value — if `false`,
   skip the graceful wait and proceed directly to `Kill()`.
+- `[DEFER-PATHS]` — All default file paths (agent config, TLS cert, log file; client
+  config) follow Windows / "run from folder" conventions and are non-standard on
+  Linux. `lance-agent.pfx`, `lance-agent.json`, and `lance-agent.log` resolve beside
+  the binary rather than under `/etc/`, `/var/lib/`, `/var/log/`, or `~/.config/`.
+  Agent paths: revisit when the daemon/service install is added (Phase 4). Client
+  config: XDG compliance (Phase 3). Full table in SPEC.md `[DEFER-PATHS]`.
 - **Auth (Phase 2):** agent optionally enforces a static bearer token. If
   `auth.token` is set in `lance-agent.json`, all non-`/health` requests must
   carry `Authorization: Bearer <token>`. If absent, the API is open. Client
