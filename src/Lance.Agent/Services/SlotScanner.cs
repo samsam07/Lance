@@ -9,12 +9,14 @@ internal sealed class SlotScanner : ISlotScanner
 {
     private readonly AgentConfig _config;
     private readonly IProcessTracker _tracker;
+    private readonly ITcpProbe _probe;
     private readonly string _resolvedHost;
 
-    public SlotScanner(AgentConfig config, IProcessTracker tracker)
+    public SlotScanner(AgentConfig config, IProcessTracker tracker, ITcpProbe probe)
     {
         _config = config;
         _tracker = tracker;
+        _probe = probe;
         _resolvedHost = ResolveHost(config.Listen.Host);
     }
 
@@ -50,13 +52,14 @@ internal sealed class SlotScanner : ISlotScanner
             if (slotId < 1000) continue;
             if (!ProcessHelper.IsAlive(entry.Pid)) continue;
 
+            string adoptedStatus = _probe.HasEstablishedConnection(entry.ObservedPort) ? "Connected" : "Running";
             slots.Add(new SlotDto
             {
                 Id = slotId,
                 Name = entry.ConfigName.Length > 0 ? entry.ConfigName : $"Adopted-{slotId}",
                 Host = _resolvedHost,
                 Port = entry.ObservedPort,
-                Status = "Running",
+                Status = adoptedStatus,
                 ConfigPath = entry.ConfigPath,
                 ConfigName = entry.ConfigName,
                 IsTemplate = false,
@@ -88,7 +91,7 @@ internal sealed class SlotScanner : ISlotScanner
 
         if (_tracker.TryGet(id, out SlotProcess? entry) && ProcessHelper.IsAlive(entry!.Pid))
         {
-            status = "Running";
+            status = _probe.HasEstablishedConnection(port) ? "Connected" : "Running";
             processId = entry.Pid;
             startedAt = entry.StartedAt;
         }

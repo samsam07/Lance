@@ -79,6 +79,7 @@ internal static class Program
                 opts.SerializerOptions.TypeInfoResolverChain.Insert(0, LanceSharedJsonContext.Default));
 
             builder.Services.AddSingleton(config);
+            builder.Services.AddSingleton<ITcpProbe, TcpProbe>();
             builder.Services.AddSingleton<ISlotScanner, SlotScanner>();
             builder.Services.AddSingleton<ISlotAllocator, SlotAllocator>();
             builder.Services.AddSingleton<IProcessTracker, ProcessTracker>();

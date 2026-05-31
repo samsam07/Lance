@@ -35,9 +35,10 @@ of Apollo config files needed to launch one instance.
 
 **Slot connected state:** A running slot is either **open** (awaiting a Moonlight
 client) or **connected** (has an active client). The agent derives this by
-TCP-probing the slot's base port for an ESTABLISHED connection from a remote IP,
-at query time. `SlotDto.Status` = `"Allocated"` | `"Running"` | `"Connected"`.
-`[RESEARCH-1]` resolved.
+TCP-probing the slot's base port for any ESTABLISHED connection at query time.
+No IP filtering is applied — a Moonlight client on the same machine connects via
+loopback and is correctly detected. `SlotDto.Status` = `"Allocated"` | `"Running"`
+| `"Connected"`. `[RESEARCH-1]` resolved.
 
 ## Lance Agent
 
