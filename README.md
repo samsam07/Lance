@@ -82,8 +82,9 @@ files in the agent output (rarely needed).
      installation paths.
    - Set `auth.token` to a secret string to protect the API (recommended). Set it
      to `""` to run the API open with no authentication.
-   - `tls.certPath` can be left as `"lance-agent.pfx"` — the agent generates a
-     self-signed certificate on first run if the file does not exist.
+   - `tls.certPath` is unused in the current release — HTTPS uses the ASP.NET Core
+     developer certificate. Run `dotnet dev-certs https --trust` once on the agent
+     machine if you have not already done so.
 3. Stop the Apollo service if it is running.
 4. Run as Administrator:
    ```
@@ -142,7 +143,7 @@ lance allocate <count>         # ensure the pool has exactly <count> slots
 lance start <id>               # start a slot's Apollo instance
 lance stop <id>                # stop a slot's Apollo instance
 lance deallocate <id>          # remove a slot config (slot must be stopped)
-lance force-deallocate <id>    # stop if running, then remove config
+lance deallocate <id> --force  # stop if running, then remove config
 
 # Open Apollo's web config page for a slot in the browser
 lance config <id>

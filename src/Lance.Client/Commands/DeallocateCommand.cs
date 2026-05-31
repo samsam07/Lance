@@ -10,12 +10,18 @@ internal static class DeallocateCommand
     public static Command Build(GlobalOptions globals)
     {
         Argument<int> slotIdArg = new("id") { Description = "Slot ID to deallocate" };
+        Option<bool> forceOption = new("--force", "-f")
+        {
+            Description = "Stop the slot if running, then deallocate (skips the running check)"
+        };
 
-        Command command = new("deallocate", "Remove a slot's config files (refuses if running — stop first or use force-deallocate)");
+        Command command = new("deallocate", "Remove a slot's config files (refuses if running unless --force is given)");
         command.Add(slotIdArg);
+        command.Add(forceOption);
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
             int slotId = pr.GetValue(slotIdArg);
+            bool force = pr.GetValue(forceOption);
             ClientConfig? config = globals.GetConfig();
             string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
@@ -31,7 +37,9 @@ internal static class DeallocateCommand
             string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
             using AgentClient client = new(agentUrl, timeout, token);
-            AgentResult<bool> result = await client.DeallocateSlotAsync(slotId, ct);
+            AgentResult<bool> result = force
+                ? await client.ForceDeallocateSlotAsync(slotId, ct)
+                : await client.DeallocateSlotAsync(slotId, ct);
 
             if (result.IsUnreachable)
             {

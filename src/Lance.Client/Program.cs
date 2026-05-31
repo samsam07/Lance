@@ -38,7 +38,6 @@ internal static class Program
         root.Add(StartCommand.Build(globals));
         root.Add(StopCommand.Build(globals));
         root.Add(DeallocateCommand.Build(globals));
-        root.Add(ForceDeallocateCommand.Build(globals));
         root.Add(ConfigCommand.Build(globals));
         root.Add(ConnectCommand.Build(globals));
         root.Add(DisconnectCommand.Build(globals));
