@@ -47,52 +47,7 @@ internal static class ProcessAdopter
                 continue;
 
             string? configPath = FindConfigArg(argv, config.RemoteServer.ConfigDir);
-
-            int port = 0;
-            if (configPath is not null && File.Exists(configPath))
-            {
-                Dictionary<string, string> values = InitializationFileReader.Read(configPath);
-                port = int.TryParse(values.GetValueOrDefault("port", ""), out int parsedPort)
-                    ? parsedPort
-                    : SunshineDefaults.StreamingPort;
-            }
-
-            DateTimeOffset startedAt = GetStartTime(pid);
-
-            if (configPath is not null
-                && TryParseSlotId(Path.GetFileName(configPath), config.Slots.ConfigNamePattern, out int slotId))
-            {
-                if (!tracker.TryGet(slotId, out _))
-                {
-                    tracker.Add(slotId, new SlotProcess
-                    {
-                        Pid = pid,
-                        StartedAt = startedAt,
-                        ObservedPort = port,
-                        ConfigPath = configPath,
-                        ConfigName = Path.GetFileName(configPath)
-                    });
-                    logger.LogInformation(
-                        "Adopted standard slot {SlotId} (PID {Pid}, port {Port}, config {ConfigName})",
-                        slotId, pid, port, Path.GetFileName(configPath));
-                }
-            }
-            else
-            {
-                int adoptedId = NextAdoptedId(tracker);
-                string configName = configPath is not null ? Path.GetFileName(configPath) : string.Empty;
-                tracker.Add(adoptedId, new SlotProcess
-                {
-                    Pid = pid,
-                    StartedAt = startedAt,
-                    ObservedPort = port,
-                    ConfigPath = configPath ?? string.Empty,
-                    ConfigName = configName
-                });
-                logger.LogInformation(
-                    "Adopted non-standard slot {SlotId} (PID {Pid}, config {ConfigName})",
-                    adoptedId, pid, configName);
-            }
+            AdoptProcess(config, tracker, logger, pid, configPath);
         }
     }
 
@@ -116,52 +71,84 @@ internal static class ProcessAdopter
 
             string[] argv = SplitCommandLine(commandLine);
             string? configPath = FindConfigArg(argv, config.RemoteServer.ConfigDir);
+            AdoptProcess(config, tracker, logger, pid, configPath);
+        }
+    }
 
-            int port = 0;
-            if (configPath is not null && File.Exists(configPath))
-            {
-                Dictionary<string, string> values = InitializationFileReader.Read(configPath);
-                port = int.TryParse(values.GetValueOrDefault("port", ""), out int parsedPort)
-                    ? parsedPort
-                    : SunshineDefaults.StreamingPort;
-            }
+    private static void AdoptProcess(
+        AgentConfig config, IProcessTracker tracker, ILogger logger,
+        int pid, string? configPath)
+    {
+        // Resolve effective config path for port reading.
+        // null configPath means Apollo was launched with no explicit --config arg,
+        // so it is using the default sunshine.conf (= Slot 0).
+        string templateConfigPath = Path.Combine(config.RemoteServer.ConfigDir, config.RemoteServer.TemplateConfigName);
+        string portConfigPath = configPath ?? templateConfigPath;
 
-            DateTimeOffset startedAt = GetStartTime(pid);
+        int port = 0;
+        if (File.Exists(portConfigPath))
+        {
+            Dictionary<string, string> values = InitializationFileReader.Read(portConfigPath);
+            port = int.TryParse(values.GetValueOrDefault("port", ""), out int parsedPort)
+                ? parsedPort
+                : SunshineDefaults.StreamingPort;
+        }
 
-            if (configPath is not null
-                && TryParseSlotId(Path.GetFileName(configPath), config.Slots.ConfigNamePattern, out int slotId))
+        DateTimeOffset startedAt = GetStartTime(pid);
+
+        if (configPath is not null
+            && TryParseSlotId(Path.GetFileName(configPath), config.Slots.ConfigNamePattern, out int slotId))
+        {
+            // Standard clone slot: sunshine_1.conf, sunshine_2.conf, ...
+            if (!tracker.TryGet(slotId, out _))
             {
-                if (!tracker.TryGet(slotId, out _))
-                {
-                    tracker.Add(slotId, new SlotProcess
-                    {
-                        Pid = pid,
-                        StartedAt = startedAt,
-                        ObservedPort = port,
-                        ConfigPath = configPath,
-                        ConfigName = Path.GetFileName(configPath)
-                    });
-                    logger.LogInformation(
-                        "Adopted standard slot {SlotId} (PID {Pid}, port {Port}, config {ConfigName})",
-                        slotId, pid, port, Path.GetFileName(configPath));
-                }
-            }
-            else
-            {
-                int adoptedId = NextAdoptedId(tracker);
-                string configName = configPath is not null ? Path.GetFileName(configPath) : string.Empty;
-                tracker.Add(adoptedId, new SlotProcess
+                tracker.Add(slotId, new SlotProcess
                 {
                     Pid = pid,
                     StartedAt = startedAt,
                     ObservedPort = port,
-                    ConfigPath = configPath ?? string.Empty,
-                    ConfigName = configName
+                    ConfigPath = configPath,
+                    ConfigName = Path.GetFileName(configPath)
                 });
                 logger.LogInformation(
-                    "Adopted non-standard slot {SlotId} (PID {Pid}, config {ConfigName})",
-                    adoptedId, pid, configName);
+                    "Adopted standard slot {SlotId} (PID {Pid}, port {Port}, config {ConfigName})",
+                    slotId, pid, port, Path.GetFileName(configPath));
             }
+        }
+        else if (configPath is null
+            || string.Equals(Path.GetFileName(configPath), config.RemoteServer.TemplateConfigName, StringComparison.OrdinalIgnoreCase))
+        {
+            // No explicit config arg (default = sunshine.conf) OR explicit sunshine.conf → Slot 0.
+            if (!tracker.TryGet(0, out _))
+            {
+                tracker.Add(0, new SlotProcess
+                {
+                    Pid = pid,
+                    StartedAt = startedAt,
+                    ObservedPort = port,
+                    ConfigPath = templateConfigPath,
+                    ConfigName = config.RemoteServer.TemplateConfigName
+                });
+                logger.LogInformation(
+                    "Adopted template slot 0 (PID {Pid}, port {Port}, config {ConfigName})",
+                    pid, port, config.RemoteServer.TemplateConfigName);
+            }
+        }
+        else
+        {
+            // Truly non-standard: different config file not matching any known pattern.
+            int adoptedId = NextAdoptedId(tracker);
+            tracker.Add(adoptedId, new SlotProcess
+            {
+                Pid = pid,
+                StartedAt = startedAt,
+                ObservedPort = port,
+                ConfigPath = configPath,
+                ConfigName = Path.GetFileName(configPath)
+            });
+            logger.LogInformation(
+                "Adopted non-standard slot {SlotId} (PID {Pid}, config {ConfigName})",
+                adoptedId, pid, Path.GetFileName(configPath));
         }
     }
 
