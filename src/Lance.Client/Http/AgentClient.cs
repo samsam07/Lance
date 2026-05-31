@@ -31,6 +31,11 @@ internal sealed class AgentClient : IDisposable
         }
     }
 
+    public async Task<AgentResult<HealthResponse>> GetHealthAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetAsync("health", LanceSharedJsonContext.Default.HealthResponse, cancellationToken);
+    }
+
     public async Task<AgentResult<SlotsResponse>> GetSlotsAsync(CancellationToken cancellationToken = default)
     {
         return await GetAsync("slots", LanceSharedJsonContext.Default.SlotsResponse, cancellationToken);

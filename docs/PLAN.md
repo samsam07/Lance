@@ -153,20 +153,28 @@ Same rules as Phase 1: one slice at a time, review gate after each.
    `Status = "Connected"`; running but no connection → `Status = "Running"`.
    `SlotDto.Status` gains the `"Connected"` value.
 
-4. **Client: connect + disconnect + enhanced status.** *(Architecture-zone.)*
-   - `lance connect [--monitors <list>]` — client-driven: `GET /slots` to count
-     free slots, `POST /slots` to allocate if short, `POST /slots/{id}/start`
-     per Allocated slot, launch Moonlight per started slot. Free-slot check: if
-     all slots are `Connected` and max is reached → exit 2 (no free slots).
-     `--monitors` is comma-separated 1-indexed physical monitor IDs; default: all
-     physical monitors (requires OS display enumeration). Replaces `--count`.
-   - `lance disconnect [--slots <list>] [--keep-running] [--purge]` — stop target
-     slots on agent, kill matching Moonlight processes by command-line port match.
-     `--slots`: target specific slot IDs (default: all running/connected).
-     `--purge`: also deallocate after stopping. `--keep-running`: stop Apollo but
-     do not kill Moonlights.
-   - `lance status` (enhanced) — slots (Allocated / Running / Connected) + local
-     Moonlight PIDs cross-referenced by slot port via command-line inspection.
+4. **Client: monitors command, connect + disconnect + enhanced status.** *(Architecture-zone.)*
+   - `lance monitors` — new standalone command listing physical monitors (ID, name,
+     resolution, position, primary). No agent required. Windows: `EnumDisplayDevicesW` +
+     `EnumDisplaySettingsExW`. Linux: Xrandr 1.5 via `libX11`/`libXrandr`. Pure Wayland
+     without XWayland not yet supported.
+   - `lance connect [--monitors <list>] [--options "<flags>"]` — replaces `--count`.
+     Free-slot check via `GET /health` + `GET /slots` (capacity = free + allocatable;
+     exit 2 if N exceeds capacity). Duplicate monitor id → fast-fail. Phase A ensures
+     each target slot is up (start if Allocated, reuse if Running/Connected); Phase B
+     launches Moonlight for each up slot lacking a live local Moonlight (host:port
+     command-line match — enables reconnect, prevents duplicates). Per-monitor
+     `--resolution WxH` injected from the mapped monitor; `--options` tokens appended
+     last. Moonlight cannot target a physical monitor (upstream limitation).
+   - `lance disconnect [--slots <list>] [--keep-running] [--purge]` — per-slot:
+     (1) kill Moonlight by `<host>:<port>` command-line match (always); (2) stop
+     Apollo on agent (unless `--keep-running`); (3) deallocate (if `--purge`, Slot 0
+     excluded). `--purge` wins over `--keep-running` with a warning.
+     `ProcessCommandLine` helper reads Moonlight process command lines without admin
+     (Windows: PEB inspection; Linux: `/proc/{pid}/cmdline`).
+   - `lance status` (enhanced) — slots table + Moonlight PID column cross-referenced
+     by `SlotDto.Host:Port` via `ProcessCommandLine`.
+   - `ExitCodes.SessionActive` renamed to `NoFreeSlots` (exit 2).
 
 ### Review-depth guide (Phase 2)
 - **Platform completions + stop fix** (1): moderate — adoption logic is subtle; review closely.

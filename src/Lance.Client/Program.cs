@@ -41,6 +41,8 @@ internal static class Program
         root.Add(ForceDeallocateCommand.Build(globals));
         root.Add(ConfigCommand.Build(globals));
         root.Add(ConnectCommand.Build(globals));
+        root.Add(DisconnectCommand.Build(globals));
+        root.Add(MonitorsCommand.Build(globals));
 
         ParseResult parseResult = root.Parse(args);
 

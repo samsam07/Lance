@@ -18,7 +18,10 @@ internal static class SlotTableRenderer
 
         foreach (SlotDto slot in slots)
         {
-            string statusCell = slot.Status == "Running" ? "[green]Running[/]" : "[yellow]Allocated[/]";
+            string statusCell;
+            if (slot.Status == "Connected") statusCell = "[cyan]Connected[/]";
+            else if (slot.Status == "Running") statusCell = "[green]Running[/]";
+            else statusCell = "[yellow]Allocated[/]";
             string pidCell = slot.ProcessId?.ToString() ?? "—";
 
             string nameCell = Markup.Escape(slot.Name);

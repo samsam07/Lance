@@ -107,8 +107,12 @@ no port math; the agent supplies every Apollo host:port.
     <HEVC|H264|AV1>`, `--fps <n>`, `--resolution <WxH>`, etc.
 - `lance disconnect [--slots <list>] [--keep-running] [--purge]`
   - `--slots <list>` — target specific slot IDs. Default: all running/connected slots.
-  - `--keep-running` — stop Apollo slots on the agent but do not kill Moonlight processes.
-  - `--purge` — stop then deallocate slots (full teardown). Slot 0 excluded from deallocation.
+  - `--keep-running` — skip stopping Apollo on the agent; Moonlight is still killed.
+    Use case: disconnect the local session but leave remote Apollo running for quick reconnect.
+    Mutually exclusive with `--purge`; `--purge` wins if both are given (warns).
+  - `--purge` — stop Apollo, kill Moonlight, then deallocate the slot. Slot 0 excluded.
+- `lance monitors` — list physical monitors on the local machine (ID, name, resolution,
+  position, primary flag). No agent interaction. Used to pick IDs for `--monitors`.
 
 
 ## Flows
@@ -117,45 +121,56 @@ no port math; the agent supplies every Apollo host:port.
 
 Precondition: Moonlight executable exists; client can reach the agent.
 
-1. **Resolve target monitors → count N.**
-   *fails if:* a requested monitor id is invalid → *on failure:* log, drop it
-   from N, continue with the rest.
-2. **`GET /slots`.** Count free slots: `Allocated` or `Running` (not `Connected`).
-   If free < N and the max-slots ceiling prevents allocating more → exit 2
-   `no_free_slots` (all usable slots are connected; user must disconnect first).
-3. **`POST /slots` (count = existing + shortfall).** Allocate any missing slots so
-   the pool reaches N non-connected. Idempotent if the pool is already large enough.
-   *fails if:* allocation fails → log, continue with however many free slots remain
-   (partial success).
-4. **`POST /slots/{id}/start` for each Allocated target slot.** Skip slots already `Running`.
-   *fails if:* a slot fails to start → warn, drop from target list, continue
-   (partial success).
-5. **Launch Moonlight per started slot** (`moonlight stream <host>:<port> Desktop …`).
-   *fails if:* a Moonlight process fails to launch → warn, continue with the rest
-   (partial success).
+1. **Resolve target monitors → ordered list (count N).** An invalid (out-of-range)
+   monitor id → log, drop it, continue. A **duplicate** id → fast-fail (user input
+   error). Position *i* in the list maps to slot *i* and supplies that slot's
+   `--resolution` (see step 5). Default (no `--monitors`): all physical monitors.
+2. **`GET /health` + `GET /slots`.** Count free slots (`Allocated` or `Running`,
+   not `Connected`) and total slots. Compute available capacity = free +
+   (maxSlots − total). If N > capacity → exit 2 `no_free_slots` (pool full,
+   not enough free slots; user must disconnect first).
+3. **`POST /slots` (count = N).** Allocate any missing slots so the pool reaches N.
+   Idempotent if the pool is already large enough.
+   *fails if:* allocation fails → log, abort (agent error).
+4. **Ensure each target slot is up.** `Allocated` → `POST /slots/{id}/start`;
+   already `Running`/`Connected` → reuse as-is. *fails if:* a slot fails to start
+   → warn, drop it, continue (partial success).
+5. **Launch Moonlight for each up slot that has no live local Moonlight.** Match by
+   `<host>:<port>` against running Moonlight command lines; if one already targets
+   the slot → skip (no duplicate, enables reconnect). Otherwise launch
+   `moonlight stream <host>:<port> Desktop [defaultFlags…] [--resolution <WxH>] [--options…]`.
+   Per-monitor `--resolution` comes from the mapped monitor (the client requests it;
+   Apollo's per-slot resolution is only a fallback). `--options` tokens are appended
+   last so they win. *fails if:* a launch fails → warn, continue (partial success).
 
-Post-state: every slot that came up has a running Moonlight; failed slots are
-logged and absent. The setup may be partial.
+Post-state: every up slot has a Moonlight (newly launched or pre-existing); failed
+slots are logged and absent. The setup may be partial.
 
 > **Failure policy — partial success.** Monitors are independent; 2 of 3 beats 0.
 > Never roll back working slots.
+>
+> **Moonlight monitor placement is not controllable.** Moonlight has no CLI flag to
+> open on a specific physical monitor (it picks the largest screen); the user places
+> windows via their OS/WM. `--monitors` therefore only selects *how many* streams and
+> *which resolution* each requests — not where each window lands.
 
 ### disconnect (Phase 2+)
 
 Target: all `Running`/`Connected` slots, or only those in `--slots <list>` if specified.
 
-For each target slot:
-1. `POST /slots/{id}/stop` (agent).
-2. Find and kill the matching Moonlight process (client): enumerate `moonlight`
-   processes, match by `<host>:<port>` in the process command line.
+For each target slot (best-effort; a failed step is logged, other slots proceed):
+1. **Kill the matching Moonlight process** (client): enumerate `moonlight` processes,
+   match by `<host>:<port>` from `SlotDto` in the process command line. Always done,
+   regardless of flags. Host:port comes from `GET /slots` (`SlotDto.Host`, `SlotDto.Port`).
+2. **`POST /slots/{id}/stop`** (agent). Skipped if `--keep-running`.
+3. **`DELETE /slots/{id}`** (agent). Only if `--purge`; Slot 0 excluded.
 
-**`--purge`:** after stopping, call `DELETE /slots/{id}` for each stopped slot.
-Slot 0 is excluded from deallocation.
+**`--keep-running`:** skip step 2 (Apollo stays running on the remote). Step 1 still
+executes — Moonlight is always killed. Use case: disconnect the session but leave
+Apollo running for quick reconnect.
 
-**`--keep-running`:** perform step 1 only — stop Apollo slots but do not kill
-Moonlight processes.
-
-Best-effort per slot: a failed stop is logged; other slots proceed.
+**`--purge`:** executes all three steps. Takes precedence over `--keep-running` if
+both are given (client warns that `--keep-running` is ignored).
 
 ### agent startup (Phase 1)
 

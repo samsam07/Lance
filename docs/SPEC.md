@@ -130,15 +130,21 @@ Token resolution (first match wins): `--token` CLI flag → `lance.json` `agent.
 
 **Commands:** `lance slots`, `lance status`, `lance config <slot_id>`
 (opens config URL: `xdg-open` / shell-execute; on failure print URL, exit 0).
-`lance connect --count <N>` is the Phase-1 client-driven sequence in ARCHITECTURE.md
-(partial success, fail-fast, no prompts).
 
-> **Phase 1 monitor targeting:** `--count <N>` (required integer) is the Phase-1
-> primitive — it tells the agent how many slots to allocate and start, then
-> launches one Moonlight per slot. **This flag is intentionally temporary.**
-> Phase 2 replaces it with `--monitors <list>` (comma-separated 1-indexed physical
-> monitor IDs, default: all physical monitors), which adds OS-level display
-> enumeration. Do not design `--count` for longevity; it will be dropped.
+`lance monitors` — list local physical monitors (ID, name, resolution, position,
+primary flag). No agent required. Use to pick IDs for `--monitors`.
+
+`lance connect [--monitors <list>]` — Phase 2 client-driven connect. `--monitors`
+is comma-separated 1-indexed physical monitor IDs; default: all physical monitors
+(requires OS display enumeration). Includes free-slot check (exit 2 if no capacity).
+
+`lance disconnect [--slots <list>] [--keep-running] [--purge]` — kill Moonlight,
+optionally stop Apollo, optionally deallocate. See ARCHITECTURE.md disconnect flow.
+
+> **OS display enumeration:** Windows uses `EnumDisplayDevicesW` + `EnumDisplaySettingsExW`
+> (`user32.dll`). Linux uses Xrandr 1.5 via `libX11`/`libXrandr` P/Invoke — requires
+> X11 or XWayland. Pure Wayland without XWayland is not supported yet. A more robust
+> approach covering both X11 and native Wayland natively is planned for a later phase.
 
 **Exit codes:** 0 success · 1 generic · 2 no free slots (all running slots are connected) · 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
 required state · 7 config resolution failed.
@@ -164,16 +170,22 @@ The client launches one Moonlight per slot, using **that slot's Apollo host+port
 returned by the agent (the client does no port math):
 
 ```
-moonlight stream <slot.Host>:<slot.Port> Desktop [defaultFlags…] [CLI overrides…]
+moonlight stream <slot.Host>:<slot.Port> Desktop [defaultFlags…] [--resolution <WxH>] [--options tokens…]
 ```
 - `slot.Host` / `slot.Port` come from `SlotDto` as returned by the agent — one
   Moonlight per slot. Port is always explicit. The client never derives these values.
 - Stream name is `Desktop`.
-- `defaultFlags` from config first, CLI overrides appended (Moonlight uses the
-  last of duplicate flags).
+- **Arg order (later wins in Moonlight):** `defaultFlags` from config → per-monitor
+  `--resolution <WxH>` (from the mapped monitor; omitted if display detection failed)
+  → `--options` tokens (whitespace-split). So per-monitor resolution overrides the
+  config default, and `--options` overrides everything.
 - Spawn as **detached children**; track PID only.
+- **Launch gate (connect):** a slot is launched only if no running Moonlight already
+  targets its `<host>:<port>` (command-line match) — prevents duplicates, enables reconnect.
 - Verified flags: `--fps <n>`, `--video-codec <HEVC|H264|AV1>` (uppercase),
-  `--bitrate <kbps>`, `--no-vsync`, `--resolution <WxH>`.
+  `--bitrate <kbps>`, `--no-vsync`, `--resolution <WxH>`, `--display-mode <fullscreen|windowed|borderless>`.
+- **Moonlight cannot target a specific physical monitor** (no such CLI flag; it picks
+  the largest screen). `--monitors` selects stream count + per-stream resolution only.
 
 ## Agent ↔ client target resolution
 
