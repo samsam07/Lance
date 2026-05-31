@@ -120,30 +120,44 @@ internal sealed class SlotLifecycle : ISlotLifecycle
             return new LifecycleResult();
         }
 
-        _logger.LogInformation("Stopping slot {SlotId} (PID {Pid})", slotId, entry.Pid);
+        _logger.LogInformation("Stopping slot {SlotId} (PID {Pid})", slotId, entry!.Pid);
 
+        bool graceful = false;
         if (OperatingSystem.IsWindows())
         {
-            process.CloseMainWindow();
+            graceful = process.CloseMainWindow();
+            if (!graceful)
+            {
+                _logger.LogDebug("Slot {SlotId}: Apollo has no window to close — proceeding to force stop", slotId);
+            }
         }
-        // [DEFER-LINUX-SIGTERM] Linux graceful stop via SIGTERM requires P/Invoke.
-        // Deferred to Phase 2. Process falls through to Kill() after timeout.
+        else if (OperatingSystem.IsLinux())
+        {
+            graceful = NativeMethods.Kill(entry!.Pid, NativeMethods.Sigterm) == 0;
+            if (!graceful)
+            {
+                _logger.LogDebug("Slot {SlotId}: failed to signal Apollo to stop — proceeding to force stop", slotId);
+            }
+        }
 
-        using CancellationTokenSource timeoutCts = new(TimeSpan.FromSeconds(_config.Slots.StopTimeoutSeconds));
-        try
+        if (graceful)
         {
-            await process.WaitForExitAsync(timeoutCts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // timeout — fall through to Kill
+            using CancellationTokenSource timeoutCts = new(TimeSpan.FromSeconds(_config.Slots.StopTimeoutSeconds));
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    "Slot {SlotId} (PID {Pid}) still running after {Timeout}s — force killing",
+                    slotId, entry!.Pid, _config.Slots.StopTimeoutSeconds);
+            }
         }
 
         if (!process.HasExited)
         {
-            _logger.LogWarning(
-                "Slot {SlotId} (PID {Pid}) did not exit within {StopTimeoutSeconds}s — force killed",
-                slotId, entry.Pid, _config.Slots.StopTimeoutSeconds);
+            _logger.LogWarning("Slot {SlotId} (PID {Pid}) force killed", slotId, entry!.Pid);
             try { process.Kill(); } catch { }
         }
         else

@@ -13,9 +13,10 @@ internal static class ProcessAdopter
         {
             AdoptLinux(config, tracker, logger);
         }
-        // [DEFER-WIN-ADOPT] Windows: enumerate running sunshine.exe instances via
-        // Process.GetProcessesByName and register as non-standard adopted slots
-        // (id >= 1000). Deferred to Phase 2 — see docs/PLAN.md.
+        else if (OperatingSystem.IsWindows())
+        {
+            AdoptWindows(config, tracker, logger);
+        }
     }
 
     private static void AdoptLinux(AgentConfig config, IProcessTracker tracker, ILogger logger)
@@ -93,6 +94,111 @@ internal static class ProcessAdopter
                     adoptedId, pid, configName);
             }
         }
+    }
+
+    private static void AdoptWindows(AgentConfig config, IProcessTracker tracker, ILogger logger)
+    {
+        string exeName = Path.GetFileNameWithoutExtension(config.RemoteServer.Executable);
+        logger.LogDebug("Scanning for running {ExecutableName} instances", exeName);
+
+        Process[] processes = Process.GetProcessesByName(exeName);
+        foreach (Process proc in processes)
+        {
+            int pid = proc.Id;
+            proc.Dispose();
+
+            string? commandLine = NativeMethods.ReadProcessCommandLine(pid);
+            if (commandLine is null)
+            {
+                logger.LogDebug("Could not read process info for PID {Pid} — skipping adoption", pid);
+                continue;
+            }
+
+            string[] argv = SplitCommandLine(commandLine);
+            string? configPath = FindConfigArg(argv, config.RemoteServer.ConfigDir);
+
+            int port = 0;
+            if (configPath is not null && File.Exists(configPath))
+            {
+                Dictionary<string, string> values = InitializationFileReader.Read(configPath);
+                port = int.TryParse(values.GetValueOrDefault("port", ""), out int parsedPort)
+                    ? parsedPort
+                    : SunshineDefaults.StreamingPort;
+            }
+
+            DateTimeOffset startedAt = GetStartTime(pid);
+
+            if (configPath is not null
+                && TryParseSlotId(Path.GetFileName(configPath), config.Slots.ConfigNamePattern, out int slotId))
+            {
+                if (!tracker.TryGet(slotId, out _))
+                {
+                    tracker.Add(slotId, new SlotProcess
+                    {
+                        Pid = pid,
+                        StartedAt = startedAt,
+                        ObservedPort = port,
+                        ConfigPath = configPath,
+                        ConfigName = Path.GetFileName(configPath)
+                    });
+                    logger.LogInformation(
+                        "Adopted standard slot {SlotId} (PID {Pid}, port {Port}, config {ConfigName})",
+                        slotId, pid, port, Path.GetFileName(configPath));
+                }
+            }
+            else
+            {
+                int adoptedId = NextAdoptedId(tracker);
+                string configName = configPath is not null ? Path.GetFileName(configPath) : string.Empty;
+                tracker.Add(adoptedId, new SlotProcess
+                {
+                    Pid = pid,
+                    StartedAt = startedAt,
+                    ObservedPort = port,
+                    ConfigPath = configPath ?? string.Empty,
+                    ConfigName = configName
+                });
+                logger.LogInformation(
+                    "Adopted non-standard slot {SlotId} (PID {Pid}, config {ConfigName})",
+                    adoptedId, pid, configName);
+            }
+        }
+    }
+
+    private static string[] SplitCommandLine(string commandLine)
+    {
+        List<string> args = new();
+        int i = 0;
+
+        while (i < commandLine.Length)
+        {
+            while (i < commandLine.Length && commandLine[i] == ' ')
+                i++;
+
+            if (i >= commandLine.Length)
+                break;
+
+            StringBuilder current = new();
+            bool inQuote = false;
+
+            while (i < commandLine.Length && (inQuote || commandLine[i] != ' '))
+            {
+                if (commandLine[i] == '"')
+                {
+                    inQuote = !inQuote;
+                    i++;
+                }
+                else
+                {
+                    current.Append(commandLine[i++]);
+                }
+            }
+
+            if (current.Length > 0)
+                args.Add(current.ToString());
+        }
+
+        return args.ToArray();
     }
 
     private static string? FindConfigArg(string[] argv, string configDir)
