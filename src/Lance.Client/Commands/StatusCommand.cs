@@ -8,16 +8,13 @@ namespace Lance.Client.Commands;
 
 internal static class StatusCommand
 {
-    public static Command Build(
-        Option<string?> agentOption,
-        Option<bool> noColorOption,
-        Func<ClientConfig?> getConfig)
+    public static Command Build(GlobalOptions globals)
     {
         Command command = new("status", "Show slot and session status (Phase 1: same as slots)");
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
-            ClientConfig? config = getConfig();
-            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, agentOption, config);
+            ClientConfig? config = globals.GetConfig();
+            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
             if (agentUrl is null)
             {
@@ -27,10 +24,11 @@ internal static class StatusCommand
 
             Log.Information("Targeting agent at {AgentUrl}", agentUrl);
 
-            bool noColor = pr.GetValue(noColorOption);
+            bool noColor = pr.GetValue(globals.NoColorOption);
             int timeout = config?.Agent?.TimeoutSeconds ?? 30;
+            string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
-            using AgentClient client = new(agentUrl, timeout);
+            using AgentClient client = new(agentUrl, timeout, token);
             AgentResult<SlotsResponse> result = await client.GetSlotsAsync(ct);
 
             if (result.IsUnreachable)

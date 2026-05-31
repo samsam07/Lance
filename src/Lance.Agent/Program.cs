@@ -1,4 +1,5 @@
-using System.Text;
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using Lance.Agent.Configuration;
 using Lance.Agent.Endpoints;
 using Lance.Agent.Infrastructure;
@@ -32,12 +33,35 @@ internal static class Program
                 ? parsed
                 : LogEventLevel.Information;
 
+            bool certExisted = File.Exists(config.Tls.CertPath);
+            X509Certificate2 cert = SelfSignedCertificate.LoadOrCreate(config.Tls.CertPath);
+            Log.Information(certExisted
+                ? "TLS certificate loaded from {CertPath}"
+                : "Self-signed TLS certificate generated at {CertPath}",
+                config.Tls.CertPath);
+
+            if (!string.IsNullOrEmpty(config.Auth.Token))
+                Log.Information("Bearer token authentication is enabled");
+            else
+                Log.Warning("No auth token configured — agent API is open to all callers");
+
             DateTimeOffset startedAt = DateTimeOffset.UtcNow;
             WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
 
-            // Phase 1: HTTP only. Explicitly override launchSettings.json / ASPNETCORE_URLS
-            // so the agent always binds to the configured host:port via plain HTTP.
-            builder.WebHost.UseUrls($"http://{config.Listen.Host}:{config.Listen.Port}");
+            builder.WebHost.ConfigureKestrel(serverOptions =>
+            {
+                IPAddress listenAddress = config.Listen.Host switch
+                {
+                    "0.0.0.0" or "*" => IPAddress.Any,
+                    "::" => IPAddress.IPv6Any,
+                    _ => IPAddress.TryParse(config.Listen.Host, out IPAddress? ip) ? ip : IPAddress.Loopback
+                };
+
+                serverOptions.Listen(listenAddress, config.Listen.Port, listenOptions =>
+                {
+                    listenOptions.UseHttps(cert);
+                });
+            });
 
             builder.Host.UseSerilog((_, loggerConfig) =>
             {
@@ -59,6 +83,8 @@ internal static class Program
             builder.Services.AddSingleton<ISlotAllocator, SlotAllocator>();
             builder.Services.AddSingleton<IProcessTracker, ProcessTracker>();
             builder.Services.AddSingleton<ISlotLifecycle, SlotLifecycle>();
+            builder.Services.AddTransient<BearerTokenMiddleware>();
+            builder.Services.AddTransient<HttpBodyLoggingMiddleware>();
 
             WebApplication app = builder.Build();
 
@@ -98,15 +124,11 @@ internal static class Program
                 Task.WhenAll(tasks).GetAwaiter().GetResult();
             });
 
+            app.UseMiddleware<BearerTokenMiddleware>();
+
             if (level <= LogEventLevel.Debug)
             {
-                Microsoft.Extensions.Logging.ILogger httpBodyLogger = app.Services
-                    .GetRequiredService<ILoggerFactory>()
-                    .CreateLogger("Lance.Agent.HttpBody");
-                app.Use(async (context, next) =>
-                {
-                    await LogHttpBodiesAsync(context, next, httpBodyLogger);
-                });
+                app.UseMiddleware<HttpBodyLoggingMiddleware>();
             }
 
             app.MapHealthEndpoints(startedAt);
@@ -125,44 +147,5 @@ internal static class Program
         {
             await Log.CloseAndFlushAsync();
         }
-    }
-
-    private static async Task LogHttpBodiesAsync(
-        HttpContext context, RequestDelegate next, Microsoft.Extensions.Logging.ILogger logger)
-    {
-        context.Request.EnableBuffering();
-        string requestBody = await ReadStreamAsync(context.Request.Body);
-        context.Request.Body.Position = 0;
-        if (requestBody.Length > 0)
-        {
-            logger.LogDebug("Request body: {Body}", requestBody);
-        }
-
-        Stream originalBody = context.Response.Body;
-        using MemoryStream capture = new();
-        context.Response.Body = capture;
-        try
-        {
-            await next(context);
-        }
-        finally
-        {
-            capture.Position = 0;
-            string responseBody = await ReadStreamAsync(capture);
-            if (responseBody.Length > 0)
-            {
-                logger.LogDebug("Response body: {Body}", responseBody);
-            }
-            capture.Position = 0;
-            await capture.CopyToAsync(originalBody);
-            context.Response.Body = originalBody;
-        }
-    }
-
-    private static async Task<string> ReadStreamAsync(Stream stream)
-    {
-        using StreamReader reader = new(stream, Encoding.UTF8,
-            detectEncodingFromByteOrderMarks: false, bufferSize: -1, leaveOpen: true);
-        return await reader.ReadToEndAsync();
     }
 }

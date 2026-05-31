@@ -9,9 +9,7 @@ namespace Lance.Client.Commands;
 
 internal static class ConnectCommand
 {
-    public static Command Build(
-        Option<string?> agentOption,
-        Func<ClientConfig?> getConfig)
+    public static Command Build(GlobalOptions globals)
     {
         Option<int> countOption = new("--count") { Description = "Number of monitors to connect" };
 
@@ -26,14 +24,14 @@ internal static class ConnectCommand
                 return ExitCodes.Generic;
             }
 
-            ClientConfig? config = getConfig();
+            ClientConfig? config = globals.GetConfig();
             if (config is null)
             {
                 Log.Error("Config could not be loaded — provide --config <path> or place lance.json beside the executable");
                 return ExitCodes.ConfigResolutionFailed;
             }
 
-            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, agentOption, config);
+            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
             if (agentUrl is null)
             {
@@ -46,11 +44,12 @@ internal static class ConnectCommand
             string executable = config.RemoteClient.Executable;
             string[] defaultFlags = config.RemoteClient.DefaultFlags;
             int timeout = config.Agent?.TimeoutSeconds ?? 30;
+            string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
             Log.Debug("Effective config — executable: {Executable}, flags: [{Flags}], timeout: {Timeout}s",
                 executable, string.Join(", ", defaultFlags), timeout);
 
-            using AgentClient client = new(agentUrl, timeout);
+            using AgentClient client = new(agentUrl, timeout, token);
 
             Log.Information("Allocating {Count} slot(s)", count);
             AgentResult<SlotsResponse> allocResult = await client.AllocateSlotsAsync(count, ct);

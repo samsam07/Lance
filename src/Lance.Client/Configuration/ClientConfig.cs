@@ -13,6 +13,7 @@ public sealed record ClientConfig
 public sealed record AgentConnectionConfig
 {
     public string? Url { get; init; }
+    public string? Token { get; init; }
     public int TimeoutSeconds { get; init; } = 30;
 }
 

@@ -136,12 +136,16 @@ Same rules as Phase 1: one slice at a time, review gate after each.
      proceed directly to `Kill()`.
 
 2. **Auth + TLS (agent + client).**
-   - Agent: `tls{}` config block (cert path, key path); enforce HTTPS on the
-     listener. `auth{}` config block (bearer token); validate `Authorization:
-     Bearer <token>` on all non-health endpoints.
-   - Client: `auth.token` in `lance.json`; send bearer on every request. TLS
-     cert validation configurable (strict default; `insecure` flag for dev).
-   - `GET /health` remains unauthenticated (liveness probe).
+   - Agent: HTTPS via self-signed cert generated on first run (`tls.certPath`,
+     defaults to `lance-agent.pfx` beside binary). `auth.token` config field —
+     if set, all non-`/health` endpoints require `Authorization: Bearer <token>`;
+     if absent, API is open. Auth enforced by a lightweight middleware (not the
+     ASP.NET auth stack). `GET /health` always unauthenticated.
+   - Client: TLS cert validation unconditionally disabled in Phase 2 (self-signed
+     cert; validation configurable when PEM support is added). Token sent via
+     `agent.token` in `lance.json` or `--token`/`-k` CLI flag (flag wins).
+     `agent.url` must use `https://`. Command builders unified via `GlobalOptions`
+     record to avoid per-command option threading.
 
 3. **Agent: slot `Connected` state.** *(Architecture-zone.)*
    When serving `GET /slots` or `GET /slots/{id}`, probe the slot's base port for

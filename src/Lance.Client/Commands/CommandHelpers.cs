@@ -6,11 +6,18 @@ namespace Lance.Client.Commands;
 
 internal static class CommandHelpers
 {
-    public static string? ResolveAgentUrl(ParseResult pr, Option<string?> agentOption, ClientConfig? config)
+    public static string? ResolveAgentUrl(ParseResult pr, GlobalOptions globals, ClientConfig? config)
     {
-        string? fromFlag = pr.GetValue(agentOption);
+        string? fromFlag = pr.GetValue(globals.AgentOption);
         if (fromFlag is not null) return fromFlag;
         return config?.Agent?.Url;
+    }
+
+    public static string? ResolveToken(ParseResult pr, GlobalOptions globals, ClientConfig? config)
+    {
+        string? fromFlag = pr.GetValue(globals.TokenOption);
+        if (fromFlag is not null) return fromFlag;
+        return config?.Agent?.Token;
     }
 
     public static IAnsiConsole MakeConsole(bool noColor)

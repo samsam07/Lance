@@ -8,10 +8,7 @@ namespace Lance.Client.Commands;
 
 internal static class AllocateCommand
 {
-    public static Command Build(
-        Option<string?> agentOption,
-        Option<bool> noColorOption,
-        Func<ClientConfig?> getConfig)
+    public static Command Build(GlobalOptions globals)
     {
         Argument<int> countArg = new("count") { Description = "Target number of slots in the pool (includes slot 0)" };
 
@@ -20,8 +17,8 @@ internal static class AllocateCommand
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
             int count = pr.GetValue(countArg);
-            ClientConfig? config = getConfig();
-            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, agentOption, config);
+            ClientConfig? config = globals.GetConfig();
+            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
             if (agentUrl is null)
             {
@@ -32,9 +29,10 @@ internal static class AllocateCommand
             Log.Information("Targeting agent at {AgentUrl}", agentUrl);
 
             int timeout = config?.Agent?.TimeoutSeconds ?? 30;
-            bool noColor = pr.GetValue(noColorOption);
+            bool noColor = pr.GetValue(globals.NoColorOption);
+            string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
-            using AgentClient client = new(agentUrl, timeout);
+            using AgentClient client = new(agentUrl, timeout, token);
             AgentResult<SlotsResponse> result = await client.AllocateSlotsAsync(count, ct);
 
             if (result.IsUnreachable)

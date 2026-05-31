@@ -11,11 +11,12 @@ internal sealed class AgentClient : IDisposable
 {
     private readonly HttpClient _http;
 
-    public AgentClient(string agentUrl, int timeoutSeconds)
+    public AgentClient(string agentUrl, int timeoutSeconds, string? token = null)
     {
         HttpClientHandler handler = new()
         {
-            // Phase 1: TLS enforcement is deferred; accept any certificate.
+            // Phase 2 uses self-signed certs; validation is unconditionally disabled.
+            // TLS cert validation will be configurable when PEM support is added.
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         };
         _http = new HttpClient(handler)
@@ -23,6 +24,11 @@ internal sealed class AgentClient : IDisposable
             BaseAddress = new Uri(agentUrl.TrimEnd('/') + "/"),
             Timeout = TimeSpan.FromSeconds(timeoutSeconds)
         };
+        if (!string.IsNullOrEmpty(token))
+        {
+            _http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
     }
 
     public async Task<AgentResult<SlotsResponse>> GetSlotsAsync(CancellationToken cancellationToken = default)

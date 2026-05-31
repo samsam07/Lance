@@ -13,6 +13,7 @@ internal static class Program
     {
         Option<string?> agentOption = new("--agent", "-a") { Description = "Override the agent URL" };
         Option<string?> configOption = new("--config", "-c") { Description = "Path to lance.json config file" };
+        Option<string?> tokenOption = new("--token", "-k") { Description = "Bearer token for agent authentication" };
         Option<bool> verboseOption = new("--verbose", "-v") { Description = "Enable debug output to stderr" };
         Option<bool> noColorOption = new("--no-color") { Description = "Disable ANSI color output" };
 
@@ -20,6 +21,7 @@ internal static class Program
         {
             agentOption,
             configOption,
+            tokenOption,
             verboseOption,
             noColorOption,
         };
@@ -28,15 +30,17 @@ internal static class Program
         // read its value during InvokeAsync — after it has been set below.
         ClientConfig? config = null;
 
-        root.Add(SlotsCommand.Build(agentOption, noColorOption, () => config));
-        root.Add(StatusCommand.Build(agentOption, noColorOption, () => config));
-        root.Add(AllocateCommand.Build(agentOption, noColorOption, () => config));
-        root.Add(StartCommand.Build(agentOption, () => config));
-        root.Add(StopCommand.Build(agentOption, () => config));
-        root.Add(DeallocateCommand.Build(agentOption, () => config));
-        root.Add(ForceDeallocateCommand.Build(agentOption, () => config));
-        root.Add(ConfigCommand.Build(agentOption, noColorOption, () => config));
-        root.Add(ConnectCommand.Build(agentOption, () => config));
+        GlobalOptions globals = new(agentOption, tokenOption, noColorOption, () => config);
+
+        root.Add(SlotsCommand.Build(globals));
+        root.Add(StatusCommand.Build(globals));
+        root.Add(AllocateCommand.Build(globals));
+        root.Add(StartCommand.Build(globals));
+        root.Add(StopCommand.Build(globals));
+        root.Add(DeallocateCommand.Build(globals));
+        root.Add(ForceDeallocateCommand.Build(globals));
+        root.Add(ConfigCommand.Build(globals));
+        root.Add(ConnectCommand.Build(globals));
 
         ParseResult parseResult = root.Parse(args);
 

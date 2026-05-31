@@ -5,6 +5,8 @@ namespace Lance.Agent.Configuration;
 public sealed record AgentConfig
 {
     public ListenConfig Listen { get; init; } = new();
+    public TlsConfig Tls { get; init; } = new();
+    public AuthConfig Auth { get; init; } = new();
     public RemoteServerConfig RemoteServer { get; init; } = new();
     public SlotsConfig Slots { get; init; } = new();
     public AgentLoggingConfig Logging { get; init; } = new();
@@ -39,6 +41,16 @@ public sealed record SlotsConfig
     public string NamePrefix { get; init; } = "Lance";
     public string TemplateName { get; init; } = "Lance-Template";
     public string ConfigNamePattern { get; init; } = "sunshine_{id}.conf";
+}
+
+public sealed record TlsConfig
+{
+    public string CertPath { get; init; } = Path.Combine(AppContext.BaseDirectory, "lance-agent.pfx");
+}
+
+public sealed record AuthConfig
+{
+    public string Token { get; init; } = string.Empty;
 }
 
 public sealed record AgentLoggingConfig

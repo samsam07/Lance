@@ -9,10 +9,7 @@ namespace Lance.Client.Commands;
 
 internal static class ConfigCommand
 {
-    public static Command Build(
-        Option<string?> agentOption,
-        Option<bool> noColorOption,
-        Func<ClientConfig?> getConfig)
+    public static Command Build(GlobalOptions globals)
     {
         Argument<int> slotIdArg = new("slot_id") { Description = "ID of the slot whose config page to open" };
 
@@ -21,8 +18,8 @@ internal static class ConfigCommand
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
             int slotId = pr.GetValue(slotIdArg);
-            ClientConfig? config = getConfig();
-            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, agentOption, config);
+            ClientConfig? config = globals.GetConfig();
+            string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
             if (agentUrl is null)
             {
@@ -33,8 +30,9 @@ internal static class ConfigCommand
             Log.Information("Targeting agent at {AgentUrl}", agentUrl);
 
             int timeout = config?.Agent?.TimeoutSeconds ?? 30;
+            string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
-            using AgentClient client = new(agentUrl, timeout);
+            using AgentClient client = new(agentUrl, timeout, token);
             AgentResult<ConfigUrlResponse> result = await client.GetSlotConfigUrlAsync(slotId, ct);
 
             if (result.IsUnreachable)

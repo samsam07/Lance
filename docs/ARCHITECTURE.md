@@ -193,4 +193,10 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   testing (`CloseMainWindow` is likely a no-op on Apollo's tray/headless process).
   Phase 2 Slice 1 fixes this: check `CloseMainWindow()` return value — if `false`,
   skip the graceful wait and proceed directly to `Kill()`.
-- Auth: no auth in Phase 1; added in Phase 2.
+- **Auth (Phase 2):** agent optionally enforces a static bearer token. If
+  `auth.token` is set in `lance-agent.json`, all non-`/health` requests must
+  carry `Authorization: Bearer <token>`. If absent, the API is open. Client
+  sends the token via `agent.token` in `lance.json` or `--token` CLI flag
+  (flag wins). TLS cert validation is unconditionally disabled on the client
+  in Phase 2 (self-signed cert); it will become configurable when PEM support
+  is added.

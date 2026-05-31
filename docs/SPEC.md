@@ -76,10 +76,20 @@ are normal slots, not flagged.)
 the template, append it after the last line. Preserve template line ordering.
 **Template file is never modified.**
 
-## Agent HTTP API (Phase 1)
+## Agent HTTP API (Phase 2)
 
-> **Phase 1: no auth, no TLS enforcement.** (Old spec assumed Bearer auth +
-> HTTPS; that moves to Phase 2.) JSON bodies, ISO-8601 UTC timestamps, integer ids.
+> **Phase 2: HTTPS + optional bearer token auth.** JSON bodies, ISO-8601 UTC
+> timestamps, integer ids.
+>
+> **TLS:** agent listens on HTTPS only. Self-signed cert generated on first run
+> (`lance-agent.pfx` beside binary, or `tls.certPath`). Client unconditionally
+> skips TLS cert validation in Phase 2 — cert validation will be configurable
+> when PEM support is added (later phase).
+>
+> **Auth:** if `auth.token` is set in `lance-agent.json`, all non-`/health`
+> requests must carry `Authorization: Bearer <token>` matching that value.
+> If `auth.token` is absent the API is open. `GET /health` is always
+> unauthenticated. Failed auth → `401 invalid_token`.
 
 - `GET /health` → `{ status, version, uptimeSeconds, maxSlots, templatePath, templateExists }`
 - `GET /slots` → `{ slots: [SlotDto, …] }`
@@ -114,7 +124,9 @@ the template, append it after the last line. Preserve template line ordering.
 
 **Config resolution:** see "Agent ↔ client target resolution" above.
 
-**Global options:** `--agent <url>|-a` (override agent URL), `--config <path>|-c`, `--verbose|-v` (debug to stderr), `--no-color`.
+**Global options:** `--agent <url>|-a` (override agent URL), `--config <path>|-c`, `--token <value>|-k` (bearer token, overrides `agent.token` in config), `--verbose|-v` (debug to stderr), `--no-color`.
+
+Token resolution (first match wins): `--token` CLI flag → `lance.json` `agent.token` → no token sent (works if agent has no token configured).
 
 **Commands:** `lance slots`, `lance status`, `lance config <slot_id>`
 (opens config URL: `xdg-open` / shell-execute; on failure print URL, exit 0).
@@ -134,15 +146,17 @@ required state · 7 config resolution failed.
 ## Config files
 
 **Agent — `lance-agent.json`** (beside binary): `listen{host,port}`,
+`tls{certPath}` (optional; defaults to `lance-agent.pfx` beside binary),
+`auth{token}` (optional; omit to disable auth),
 `remoteServer{installDir,configDir,executable,templateConfigName,startupTimeoutSeconds}`,
 `slots{maxCount,portStep,stopTimeoutSeconds,namePrefix,templateName,configNamePattern}`,
-`logging{level,filePath,retainDays}`. *(`tls`/`auth` blocks exist but are
-inert in Phase 1.)*
+`logging{level,filePath,retainDays}`.
 
-**Client — `lance.json`**: `agent{url,timeoutSeconds}`,
+**Client — `lance.json`**: `agent{url,token,timeoutSeconds}`,
 `remoteClient{executable,defaultFlags}`, `ui{color}`, `logging{level,filePath}`.
 `remoteClient.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI flags
-append after `defaultFlags` (later args win in Moonlight). Phase 1 ignores cert errors.
+append after `defaultFlags` (later args win in Moonlight). TLS cert validation is
+unconditionally disabled in Phase 2 (self-signed cert); `agent.url` must use `https://`.
 
 ## Moonlight launch
 
@@ -229,13 +243,14 @@ kill/power loss leaves Apollo instances running; the next startup **adopts** the
 ```json
 { "error": "code_string", "message": "Human readable", "details": {} }
 ```
-Phase-1 codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
+Error codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
 `cannot_deallocate_template`, `cannot_deallocate_adopted`, `cannot_start_adopted`,
 `template_missing`, `apollo_launch_failed`, `invalid_slot_id`,
-`max_slots_exceeded`, `io_error`, `internal_error`.
+`max_slots_exceeded`, `io_error`, `internal_error`, `invalid_token`.
 *(`slot_in_use` = `DELETE /slots/{id}` on a running slot; use
 `POST /slots/{id}/force-deallocate` to stop-then-deallocate instead.)*
-*(Auth code `invalid_token` is Phase 2+.)*
+*(`invalid_token` = missing or wrong `Authorization: Bearer` header on a
+protected endpoint.)*
 
 ## Build / project setup
 
