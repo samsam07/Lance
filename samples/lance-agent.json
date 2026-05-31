@@ -3,6 +3,12 @@
     "host": "0.0.0.0",
     "port": 9876
   },
+  "tls": {
+    "certPath": "lance-agent.pfx"
+  },
+  "auth": {
+    "token": "ODlyrexDUv5jckPb7nUWBK9O"
+  },
   "remoteServer": {
     "installDir": "C:\\Program Files\\Apollo",
     "configDir": "C:\\Program Files\\Apollo\\config",

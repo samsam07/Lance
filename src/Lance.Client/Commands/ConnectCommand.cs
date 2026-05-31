@@ -136,21 +136,12 @@ internal static class ConnectCommand
                 return ExitCodes.AgentError;
             }
 
-            int freeCount = 0;
-            int totalCount = 0;
-            foreach (SlotDto slot in slotsResult.Value!.Slots)
-            {
-                totalCount++;
-                if (slot.Status != "Connected")
-                    freeCount++;
-            }
-
-            int availableCapacity = freeCount + (maxSlots - totalCount);
+            int availableCapacity = ComputeAvailableCapacity(slotsResult.Value!.Slots, maxSlots);
             if (N > availableCapacity)
             {
                 Log.Error(
-                    "No capacity for {N} monitor(s): {Free} free slot(s), {Total}/{Max} used. Disconnect first.",
-                    N, freeCount, totalCount, maxSlots);
+                    "No capacity for {N} monitor(s): {Available} slot(s) available (max {Max}). Disconnect first.",
+                    N, availableCapacity, maxSlots);
                 return ExitCodes.NoFreeSlots;
             }
 
@@ -258,7 +249,18 @@ internal static class ConnectCommand
         return command;
     }
 
-    private static int FindMoonlightFor(IReadOnlyList<(int Pid, string CommandLine)> moonlights, string hostPort)
+    internal static int ComputeAvailableCapacity(IReadOnlyList<SlotDto> slots, int maxSlots)
+    {
+        int free = 0;
+        foreach (SlotDto s in slots)
+        {
+            if (s.Status != "Connected")
+                free++;
+        }
+        return free + (maxSlots - slots.Count);
+    }
+
+    internal static int FindMoonlightFor(IReadOnlyList<(int Pid, string CommandLine)> moonlights, string hostPort)
     {
         foreach ((int Pid, string CommandLine) m in moonlights)
         {

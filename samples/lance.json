@@ -1,6 +1,7 @@
 {
   "agent": {
-    "url": "http://<agent-host>:9876",
+    "url": "https://<agent-host>:9876",
+    "token": "ODlyrexDUv5jckPb7nUWBK9O",
     "timeoutSeconds": 30
   },
   "remoteClient": {
