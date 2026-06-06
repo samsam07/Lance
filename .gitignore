@@ -429,7 +429,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
-dist/lance-agent.zip
 dist/agent/aspnetcorev2_inprocess.dll
 dist/agent/lance-agent.exe
 dist/agent/lance-agent.json

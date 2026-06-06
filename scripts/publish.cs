@@ -1,21 +1,19 @@
 #!/usr/bin/env dotnet
-// Run from the repo root: dotnet run scripts/dist.cs [--keep-iis-artifacts]
+// Run from the repo root: dotnet run scripts/publish.cs [--keep-iis-artifacts]
 //
-// Windows: builds lance-agent (win-x64 AOT) + lance client (win-x64 AOT).
-//          agent is zipped to dist/lance-agent.zip; client is left as dist/client/.
-// Linux:   builds lance client (linux-x64 AOT) to dist/client-linux/.
+// Windows: builds lance-agent (win-x64 AOT) to dist/agent/
+//          builds lance client (win-x64 AOT) to dist/client/
+// Linux:   builds lance client (linux-x64 AOT) to dist/client-linux/
 //
-// Sample configs from samples/ are copied into each dist directory so the
-// zipped artifact is ready to extract and configure.
+// Sample configs from samples/ are copied into each dist directory.
 
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
 
 if (!Directory.Exists("src"))
 {
     Console.ForegroundColor = ConsoleColor.Red;
-    Console.Error.WriteLine("error: run from the repository root -- dotnet run scripts/dist.cs");
+    Console.Error.WriteLine("error: run from the repository root -- dotnet run scripts/publish.cs");
     Console.ResetColor();
     return 1;
 }
@@ -24,7 +22,6 @@ bool keepIis  = args.Contains("--keep-iis-artifacts");
 var  root     = Directory.GetCurrentDirectory();
 var  distDir  = Path.Combine(root, "dist");
 var  agentDir = Path.Combine(distDir, "agent");
-var  agentZip = Path.Combine(distDir, "lance-agent.zip");
 
 Tint(ConsoleColor.Cyan,    "\nLance distribution build");
 Tint(ConsoleColor.DarkGray, $"Platform: {RuntimeInformation.OSDescription}");
@@ -46,7 +43,6 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
     Publish("Lance.Agent", "win-x64-aot");
     if (!keepIis) RemoveIisArtifacts(agentDir);
     CopySampleConfig(root, agentDir, "lance-agent.json");
-    CreateZip(agentDir, agentZip);
 
     Console.WriteLine();
     Section("Client (win-x64):");
@@ -114,14 +110,6 @@ void CopySampleConfig(string repoRoot, string destDir, string fileName)
     if (!Directory.Exists(destDir)) return;
     File.Copy(src, dest, overwrite: true);
     Tint(ConsoleColor.DarkGray, $"  copied {fileName}");
-}
-
-void CreateZip(string sourceDir, string destZip)
-{
-    if (File.Exists(destZip)) File.Delete(destZip);
-    ZipFile.CreateFromDirectory(sourceDir, destZip);
-    var mb = Math.Round(new FileInfo(destZip).Length / 1_048_576.0, 1);
-    Tint(ConsoleColor.Green, $"  -> {Path.GetFileName(destZip)} ({mb} MB)");
 }
 
 void ShowArtifacts(string dir)
