@@ -215,6 +215,17 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   the binary rather than under `/etc/`, `/var/lib/`, `/var/log/`, or `~/.config/`.
   Agent paths: revisit when the daemon/service install is added (Phase 4). Client
   config: XDG compliance (Phase 3). Full table in SPEC.md `[DEFER-PATHS]`.
+- `[DEFER-PAIR-AUTO]` **Phase 4** — Automated slot pairing. Currently each clone
+  slot must be paired with Moonlight manually once before first use (each clone
+  has its own `file_state` / unique UUID). Proposed automation: when cloning,
+  Lance reads Slot 0's `sunshine_state.json`, copies its `certs` array (the
+  paired client certificates) into the clone's state file, and generates a fresh
+  `uniqueid`. If Apollo's pairing endpoint skips the PIN when the connecting
+  client's cert is already in the `certs` list, no manual pairing step is needed
+  at all. **One verification required before implementation:** confirm that
+  Apollo's `/pair` handler short-circuits (returns success) when the client cert
+  is already present, rather than unconditionally triggering the full PIN flow
+  for any new UUID.
 - **Auth (Phase 2):** agent optionally enforces a static bearer token. If
   `auth.token` is set in `lance-agent.json`, all non-`/health` requests must
   carry `Authorization: Bearer <token>`. If absent, the API is open. Client

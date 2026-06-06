@@ -22,8 +22,8 @@ Two components cooperate:
 
 `lance connect` asks the agent to start one Apollo instance per monitor, then
 launches one Moonlight window per instance. Each instance uses an independent
-configuration cloned from your existing Apollo setup, inheriting your pairing
-credentials automatically.
+configuration cloned from your existing Apollo setup. Each clone has its own
+identity and must be paired with Moonlight once before it can be used.
 
 A **slot** is Lance's term for one Apollo instance and its configuration. Slot 0
 is your original Apollo config (the template); slots 1, 2, … are clones. `lance
@@ -56,17 +56,27 @@ status` shows all slots and which ones have an active Moonlight connection.
 Run from the repository root on a **Windows** machine:
 
 ```
-dotnet run scripts/dist.cs
+make publish
 ```
 
-Optional flag: `--keep-iis-artifacts` — keeps `web.config` and static web asset
-files in the agent output (rarely needed).
+Optional:
+
+```
+make publish-keep-iis    # keeps web.config and static web asset files in the agent output (rarely needed)
+make test                # run all tests
+```
+
+`make` ships with Git for Windows (Git Bash). If you prefer to invoke the script directly:
+
+```
+dotnet run scripts/publish.cs [--keep-iis-artifacts]
+```
 
 **Outputs:**
 
 | Path | Contents |
 |---|---|
-| `dist/lance-agent.zip` | Agent binary + sample config — deploy to the remote machine |
+| `dist/agent/` | Agent binary + sample config — deploy to the remote machine |
 | `dist/client/` | Client binary + sample config — deploy to the local machine |
 | `dist/client-linux/` | Linux client binary — produced when the script runs on Linux |
 
@@ -76,7 +86,7 @@ files in the agent output (rarely needed).
 
 ### Agent (remote machine)
 
-1. Extract `lance-agent.zip` into a folder, e.g. `C:\Lance\agent\`.
+1. Copy `dist/agent/` to a folder on the remote machine, e.g. `C:\Lance\agent\`.
 2. Edit `lance-agent.json`:
    - Set `remoteServer.installDir` and `remoteServer.configDir` to your Apollo
      installation paths.
@@ -249,6 +259,11 @@ Full sample files are in [`samples/`](samples/).
 
 ## Notes
 
+- **Pairing slots:** each clone slot has its own Apollo identity and must be
+  paired with Moonlight individually before first use. Start the slot
+  (`lance start <id>`), open Moonlight and add the host on that slot's port
+  (`host:<port>`), complete the PIN pairing, then stop the slot
+  (`lance stop <id>`). Only needs doing once per slot.
 - **Monitor placement:** Moonlight has no CLI flag to open on a specific physical
   monitor. `--monitors` selects which streams to open and what resolution each
   requests; window placement is done manually.

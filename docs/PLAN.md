@@ -192,3 +192,6 @@ Feature-complete but not public-ready. *(TBD.)*
 
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*
+
+Includes `[DEFER-PAIR-AUTO]` — automated slot pairing. See ARCHITECTURE.md for
+the proposed mechanism and the one open verification needed before implementation.

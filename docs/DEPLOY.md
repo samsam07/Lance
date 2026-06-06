@@ -10,8 +10,9 @@ dropped into folders and run manually.
 - Apollo (Sunshine fork) installed; the service **stopped** before running Lance
   (`sunshinesvc.exe` / `apollo.exe` watchdog must not be running — see
   `[DEFER-SVC]` in ARCHITECTURE.md)
-- The `sunshine.conf` template config already set up (paired at least once with
-  Moonlight so `file_state` carries the credentials)
+- The `sunshine.conf` template config already set up and paired at least once
+  with Moonlight (Slot 0). Each additional slot must be paired individually
+  after first start — see the Pairing section below.
 
 **Local machine (client side)**
 - Moonlight installed; `moonlight.exe` (Windows) or `moonlight` (Linux) on PATH
@@ -24,16 +25,17 @@ dropped into folders and run manually.
 Run from the repo root on a **Windows** machine (AOT requires the MSVC toolchain):
 
 ```
-dotnet run scripts/dist.cs
+make publish
 ```
 
-Optional flag: `--keep-iis-artifacts` — retains `web.config` and
-`staticwebassets` files in the agent dist (rarely needed).
+Optional: `make publish-keep-iis` — retains `web.config` and `staticwebassets`
+files in the agent dist (rarely needed). Or invoke directly:
+`dotnet run scripts/publish.cs [--keep-iis-artifacts]`.
 
 Outputs:
 | Path | Contents |
 |---|---|
-| `dist/lance-agent.zip` | Agent binary + sample config (deploy to remote) |
+| `dist/agent/` | Agent binary + sample config (deploy to remote) |
 | `dist/client/` | Client binary + sample config (deploy to local machine) |
 
 A Linux client build (`dist/client-linux/`) is produced when the script is run
@@ -41,8 +43,7 @@ on Linux.
 
 ## Agent deployment (remote machine)
 
-1. Extract `lance-agent.zip` beside each other into a folder, e.g.
-   `C:\Lance\agent\`.
+1. Copy `dist/agent/` to a folder on the remote machine, e.g. `C:\Lance\agent\`.
 2. Rename `lance-agent.json` (the sample) or edit it in place:
    - Set `remoteServer.installDir` and `remoteServer.configDir` to match your
      Apollo installation.
@@ -78,6 +79,22 @@ lance connect --count 2
 # Open Apollo config page for slot 1 in the browser
 lance config 1
 ```
+
+## Pairing slots
+
+Each clone slot has its own Apollo identity (unique `file_state`) and must be
+paired with Moonlight once before it can stream. Slot 0 is already paired from
+your initial Apollo setup. For each additional slot (1, 2, …):
+
+1. Start the slot: `lance start <id>`
+2. Open Moonlight on the local machine, add a new host: `<remote-ip>:<slot-port>`
+   (slot ports: slot 1 = template port − 1000, slot 2 = template port − 2000, …;
+   run `lance slots` to see each slot's port).
+3. Complete the PIN pairing flow.
+4. Stop the slot: `lance stop <id>`
+
+This only needs doing once per slot. After pairing, `lance connect` drives the
+session normally.
 
 ## Config file lookup order
 
