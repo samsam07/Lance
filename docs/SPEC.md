@@ -64,11 +64,15 @@ are normal slots, not flagged.)
 | `log_path` | `sunshine_{N}.log` |
 | `server_cmd` | `[]` |
 | `stream_audio` | `disabled` |
+| `file_state` | `sunshine_{N}_state.json` |
+| `credentials_file` | `sunshine_{N}_state.json` |
+
+Both `file_state` and `credentials_file` are set to the **same per-clone path**
+(matching Apollo's default where both fields point to one file). Each clone gets
+a unique server UUID this way; Moonlight must be paired with each clone separately.
+Slot 0's state file is never touched — the template keeps its own pairing state.
 
 **Inherit verbatim — do NOT touch:**
-- `file_state` — **deliberately inherited unchanged.** All slots share the
-  template's state file; this is how pairing credentials carry over
-  automatically. **Mutating this silently breaks pairing.**
 - `headless_mode`, `dd_configuration_option`, all encoder/display settings.
 
 **Format:** INI-like, `key = value` per line, no section headers, no quoting.

@@ -1,4 +1,5 @@
 using System.Net;
+
 using Lance.Agent.Configuration;
 using Lance.Agent.Infrastructure;
 using Lance.Shared.Dtos;
@@ -151,11 +152,14 @@ internal sealed class SlotAllocator : ISlotAllocator
             outputLines.Add(line);
         }
 
+        string stateFileName = BuildStateFileName(id);
         AppendIfMissing("sunshine_name", written, outputLines, $"{_config.Slots.NamePrefix}-{id}");
         AppendIfMissing("port", written, outputLines, slotPort.ToString());
         AppendIfMissing("log_path", written, outputLines, logFileName);
         AppendIfMissing("server_cmd", written, outputLines, "[]");
         AppendIfMissing("stream_audio", written, outputLines, "disabled");
+        AppendIfMissing("file_state", written, outputLines, stateFileName);
+        AppendIfMissing("credentials_file", written, outputLines, stateFileName);
 
         string clonePath = Path.Combine(_config.RemoteServer.ConfigDir, BuildConfigName(id));
         File.WriteAllLines(clonePath, outputLines);
@@ -163,6 +167,7 @@ internal sealed class SlotAllocator : ISlotAllocator
 
     private string? GetMutatedValue(string normalizedKey, int id, int slotPort, string logFileName)
     {
+        string stateFileName = BuildStateFileName(id);
         return normalizedKey switch
         {
             "sunshine_name" => $"{_config.Slots.NamePrefix}-{id}",
@@ -170,9 +175,13 @@ internal sealed class SlotAllocator : ISlotAllocator
             "log_path" => logFileName,
             "server_cmd" => "[]",
             "stream_audio" => "disabled",
+            "file_state" => stateFileName,
+            "credentials_file" => stateFileName,
             _ => null
         };
     }
+
+    private static string BuildStateFileName(int id) => $"sunshine_{id}_state.json";
 
     private static void AppendIfMissing(string key, HashSet<string> written, List<string> lines, string value)
     {
@@ -259,9 +268,11 @@ internal sealed class SlotAllocator : ISlotAllocator
 
         string logPath = Path.Combine(_config.RemoteServer.ConfigDir, $"sunshine_{id}.log");
         if (File.Exists(logPath))
-        {
             File.Delete(logPath);
-        }
+
+        string statePath = Path.Combine(_config.RemoteServer.ConfigDir, BuildStateFileName(id));
+        if (File.Exists(statePath))
+            File.Delete(statePath);
 
         _logger.LogInformation("Slot {SlotId} deallocated", id);
         return new DeallocateResult { HttpStatus = 200 };
