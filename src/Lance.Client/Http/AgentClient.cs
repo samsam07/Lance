@@ -15,8 +15,8 @@ internal sealed class AgentClient : IDisposable
     {
         HttpClientHandler handler = new()
         {
-            // Phase 2 uses self-signed certs; validation is unconditionally disabled.
-            // TLS cert validation will be configurable when PEM support is added.
+            // TLS cert validation unconditionally disabled in Phase 2 (dev cert).
+            // Will be configurable when PEM pinning / CA trust is added.
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         };
         _http = new HttpClient(handler)
