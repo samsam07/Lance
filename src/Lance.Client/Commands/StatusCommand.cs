@@ -32,6 +32,11 @@ internal static class StatusCommand
             string executableName = config?.RemoteClient.Executable ?? "moonlight";
 
             using AgentClient client = new(agentUrl, timeout, token);
+
+            AgentResult<HealthResponse> healthResult = await client.GetHealthAsync(ct);
+            if (healthResult.IsSuccess)
+                CommandHelpers.CheckAgentVersion(healthResult.Value!);
+
             AgentResult<SlotsResponse> result = await client.GetSlotsAsync(ct);
 
             if (result.IsUnreachable)

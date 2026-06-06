@@ -122,6 +122,7 @@ internal static class ConnectCommand
             if (healthResult.IsSuccess)
             {
                 maxSlots = healthResult.Value!.MaxSlots;
+                CommandHelpers.CheckAgentVersion(healthResult.Value!);
             }
 
             AgentResult<SlotsResponse> slotsResult = await client.GetSlotsAsync(ct);
