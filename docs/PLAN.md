@@ -162,10 +162,11 @@ Same rules as Phase 1: one slice at a time, review gate after each.
      Free-slot check via `GET /health` + `GET /slots` (capacity = free + allocatable;
      exit 2 if N exceeds capacity). Duplicate monitor id → fast-fail. Phase A ensures
      each target slot is up (start if Allocated, reuse if Running/Connected); Phase B
-     launches Moonlight for each up slot lacking a live local Moonlight (host:port
-     command-line match — enables reconnect, prevents duplicates). Per-monitor
-     `--resolution WxH` injected from the mapped monitor; `--options` tokens appended
-     last. Moonlight cannot target a physical monitor (upstream limitation).
+     launches Moonlight for each up slot lacking a live local Moonlight (two-method
+     detection — enables reconnect, prevents duplicates). Per-monitor `--resolution WxH`
+     injected; `--options` tokens appended last. After launches, `WindowPlacer` moves
+     each window's origin to the target monitor with `SetWindowPos(SWP_NOSIZE)`
+     (Windows; `[DEFER-LINUX-WINPOS]`); SDL fullscreens on the correct display.
    - `lance disconnect [--slots <list>] [--keep-running] [--purge]` — per-slot:
      (1) kill Moonlight by `<host>:<port>` command-line match (always); (2) stop
      Apollo on agent (unless `--keep-running`); (3) deallocate (if `--purge`, Slot 0
@@ -192,6 +193,10 @@ Feature-complete but not public-ready. *(TBD.)*
 
 Includes `[DEFER-LINUX-WINDETECT]` — Linux window title detection for Moonlight
 instance matching (method 2). See ARCHITECTURE.md for options and constraints.
+
+Includes `[DEFER-LINUX-WINPOS]` — Moonlight monitor placement on Linux. Qt's
+`-geometry +X+Y` is the likely path (same mechanism as Windows); verify on
+X11/XWayland before enabling. See ARCHITECTURE.md.
 
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*

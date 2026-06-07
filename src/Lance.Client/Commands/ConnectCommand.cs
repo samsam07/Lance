@@ -213,6 +213,7 @@ internal static class ConnectCommand
             int launched = 0;
             int reused = 0;
             int attempted = 0;
+            List<Task> positionTasks = new();
             foreach ((SlotDto slot, MonitorInfo? monitor) in upSlots)
             {
                 string hostPort = $"{slot.Host}:{slot.Port}";
@@ -230,12 +231,17 @@ internal static class ConnectCommand
                 {
                     Log.Information("Moonlight launched for slot {Id} at {Host}:{Port} (PID {Pid})", slot.Id, slot.Host, slot.Port, pid);
                     launched++;
+                    if (OperatingSystem.IsWindows() && monitor is not null)
+                        positionTasks.Add(WindowPlacer.PositionWindowAsync(pid, monitor.X, monitor.Y, monitor.Width, monitor.Height));
                 }
                 else
                 {
                     Log.Warning("Failed to launch Moonlight for slot {Id} at {Host}:{Port}", slot.Id, slot.Host, slot.Port);
                 }
             }
+
+            if (positionTasks.Count > 0)
+                await Task.WhenAll(positionTasks);
 
             if (attempted > 0 && launched == 0)
             {

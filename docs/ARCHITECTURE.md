@@ -143,17 +143,26 @@ Precondition: Moonlight executable exists; client can reach the agent.
    Per-monitor `--resolution` comes from the mapped monitor (the client requests it;
    Apollo's per-slot resolution is only a fallback). `--options` tokens are appended
    last so they win. *fails if:* a launch fails → warn, continue (partial success).
+6. **Position each Moonlight window** (Windows; `[DEFER-LINUX-WINPOS]`). After all
+   launches, placement tasks run in parallel: poll `Process.MainWindowHandle` for each
+   PID (200 ms intervals, 5 s timeout); once non-zero, call `SetWindowPos` with
+   `SWP_NOSIZE` to move the window's top-left to the target monitor's `(X, Y)` without
+   resizing. SDL uses the window's current display (via `MonitorFromWindow`) when going
+   fullscreen, so moving the origin to the target monitor is sufficient — the app
+   handles fullscreen geometry itself. Failure to place is a warning, not an error.
 
-Post-state: every up slot has a Moonlight (newly launched or pre-existing); failed
-slots are logged and absent. The setup may be partial.
+Post-state: every up slot has a Moonlight (newly launched or pre-existing) on the
+correct physical monitor; failed slots are logged and absent. The setup may be partial.
 
 > **Failure policy — partial success.** Monitors are independent; 2 of 3 beats 0.
 > Never roll back working slots.
 >
-> **Moonlight monitor placement is not controllable.** Moonlight has no CLI flag to
-> open on a specific physical monitor (it picks the largest screen); the user places
-> windows via their OS/WM. `--monitors` therefore only selects *how many* streams and
-> *which resolution* each requests — not where each window lands.
+> **Moonlight monitor placement** (Windows; Phase 2). Moonlight has no CLI flag for
+> monitor selection. Lance moves each freshly launched window to the target monitor's
+> top-left with `SetWindowPos(SWP_NOSIZE)`. SDL picks the display for fullscreen via
+> `MonitorFromWindow` at the time the app transitions to fullscreen — the window's new
+> position is sufficient for SDL to pick the correct display.
+> `[DEFER-LINUX-WINPOS]` — Linux deferred to Phase 3.
 
 ### disconnect (Phase 2+)
 
@@ -243,6 +252,10 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   Linux needs `wmctrl -lp` or X11 P/Invoke. Method 1 (command-line host:port)
   still covers Lance-launched instances on Linux. See "Moonlight instance
   detection" above.
+- `[DEFER-LINUX-WINPOS]` **Phase 3** — Moonlight monitor placement on Linux.
+  Windows uses `SetWindowPos(SWP_NOSIZE)` to move the window origin to the target
+  monitor; SDL then fullscreens on the correct display. Linux equivalent: `wmctrl
+  -r <title> -e 0,X,Y,-1,-1` or X11 `XMoveWindow` to reposition, same principle.
 - `[DEFER-PAIR-AUTO]` **Phase 4** — Automated slot pairing. Currently each clone
   slot must be paired with Moonlight manually once before first use (each clone
   has its own `file_state` / unique UUID). Proposed automation: when cloning,
