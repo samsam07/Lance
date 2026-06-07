@@ -207,7 +207,7 @@ internal static class ConnectCommand
             }
 
             // Phase B — launch Moonlight for each up slot that has no live local Moonlight
-            IReadOnlyList<(int Pid, string CommandLine)> moonlights =
+            IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights =
                 ProcessCommandLine.FindMoonlightProcesses(executable);
 
             int launched = 0;
@@ -216,10 +216,11 @@ internal static class ConnectCommand
             foreach ((SlotDto slot, MonitorInfo? monitor) in upSlots)
             {
                 string hostPort = $"{slot.Host}:{slot.Port}";
-                int existingPid = FindMoonlightFor(moonlights, hostPort);
-                if (existingPid != 0)
+                IReadOnlyList<int> existing = ProcessCommandLine.FindMoonlightsForSlot(moonlights, hostPort, slot.Name);
+                if (existing.Count > 0)
                 {
-                    Log.Information("Slot {Id} already has Moonlight (PID {Pid}) — skipping launch", slot.Id, existingPid);
+                    Log.Information("Slot {Id} already has Moonlight ({Pids}) — skipping launch",
+                        slot.Id, string.Join(", ", existing));
                     reused++;
                     continue;
                 }
@@ -259,18 +260,6 @@ internal static class ConnectCommand
                 free++;
         }
         return free + (maxSlots - slots.Count);
-    }
-
-    internal static int FindMoonlightFor(IReadOnlyList<(int Pid, string CommandLine)> moonlights, string hostPort)
-    {
-        foreach ((int Pid, string CommandLine) m in moonlights)
-        {
-            if (m.CommandLine.Contains(hostPort, StringComparison.OrdinalIgnoreCase))
-            {
-                return m.Pid;
-            }
-        }
-        return 0;
     }
 
     private static bool TryLaunchMoonlight(

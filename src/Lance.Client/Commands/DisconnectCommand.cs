@@ -113,7 +113,7 @@ internal static class DisconnectCommand
                 return ExitCodes.Success;
             }
 
-            IReadOnlyList<(int Pid, string CommandLine)> moonlights =
+            IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights =
                 ProcessCommandLine.FindMoonlightProcesses(executableName);
 
             int disconnected = 0;
@@ -121,23 +121,21 @@ internal static class DisconnectCommand
             {
                 Log.Debug("Disconnecting slot {Id} ({Name})", slot.Id, slot.Name);
 
-                // 1. Kill matching Moonlight process (always, regardless of flags)
-                foreach ((int Pid, string CommandLine) moonlight in moonlights)
+                // 1. Kill all matching Moonlight processes (always, regardless of flags)
+                IReadOnlyList<int> matchedPids = ProcessCommandLine.FindMoonlightsForSlot(
+                    moonlights, $"{slot.Host}:{slot.Port}", slot.Name);
+
+                foreach (int mpid in matchedPids)
                 {
-                    string hostPort = $"{slot.Host}:{slot.Port}";
-                    if (moonlight.CommandLine.Contains(hostPort, StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        try
-                        {
-                            using Process p = Process.GetProcessById(moonlight.Pid);
-                            p.Kill();
-                            Log.Information("Slot {Id}: Moonlight process {Pid} killed", slot.Id, moonlight.Pid);
-                        }
-                        catch
-                        {
-                            Log.Warning("Slot {Id}: could not kill Moonlight process {Pid}", slot.Id, moonlight.Pid);
-                        }
-                        break;
+                        using Process p = Process.GetProcessById(mpid);
+                        p.Kill();
+                        Log.Information("Slot {Id}: Moonlight process {Pid} killed", slot.Id, mpid);
+                    }
+                    catch
+                    {
+                        Log.Warning("Slot {Id}: could not kill Moonlight process {Pid}", slot.Id, mpid);
                     }
                 }
 

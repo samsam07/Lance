@@ -190,6 +190,9 @@ partial-success logic (Slice 4) at minimum. Integration tests deferred to Phase 
 ## Phase 3 — Beta
 Feature-complete but not public-ready. *(TBD.)*
 
+Includes `[DEFER-LINUX-WINDETECT]` — Linux window title detection for Moonlight
+instance matching (method 2). See ARCHITECTURE.md for options and constraints.
+
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*
 

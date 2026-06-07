@@ -135,9 +135,10 @@ Precondition: Moonlight executable exists; client can reach the agent.
 4. **Ensure each target slot is up.** `Allocated` → `POST /slots/{id}/start`;
    already `Running`/`Connected` → reuse as-is. *fails if:* a slot fails to start
    → warn, drop it, continue (partial success).
-5. **Launch Moonlight for each up slot that has no live local Moonlight.** Match by
-   `<host>:<port>` against running Moonlight command lines; if one already targets
-   the slot → skip (no duplicate, enables reconnect). Otherwise launch
+5. **Launch Moonlight for each up slot that has no live local Moonlight.** Detect
+   existing Moonlight instances for the slot using two methods in order (see
+   Moonlight detection below); if any match → skip (no duplicate, enables
+   reconnect). Otherwise launch
    `moonlight stream <host>:<port> Desktop [defaultFlags…] [--resolution <WxH>] [--options…]`.
    Per-monitor `--resolution` comes from the mapped monitor (the client requests it;
    Apollo's per-slot resolution is only a fallback). `--options` tokens are appended
@@ -159,9 +160,9 @@ slots are logged and absent. The setup may be partial.
 Target: all `Running`/`Connected` slots, or only those in `--slots <list>` if specified.
 
 For each target slot (best-effort; a failed step is logged, other slots proceed):
-1. **Kill the matching Moonlight process** (client): enumerate `moonlight` processes,
-   match by `<host>:<port>` from `SlotDto` in the process command line. Always done,
-   regardless of flags. Host:port comes from `GET /slots` (`SlotDto.Host`, `SlotDto.Port`).
+1. **Kill all matching Moonlight processes** (client): enumerate `moonlight`
+   processes and match using the two-method detection below. Always done,
+   regardless of flags. Multiple Moonlight clients per slot are all killed.
 2. **`POST /slots/{id}/stop`** (agent). Skipped if `--keep-running`.
 3. **`DELETE /slots/{id}`** (agent). Only if `--purge`; Slot 0 excluded.
 
@@ -190,6 +191,28 @@ processes, never persisted.
 > only its own direct `sunshine.exe` launches. Auto-managing the service is
 > deferred — `[DEFER-SVC]`. Admin on Linux is untested — `[VERIFY-APOLLO]`.
 
+### Moonlight instance detection
+
+To find Moonlight processes associated with a slot, the client applies two
+methods in order. A process matched by either is considered owned by that slot.
+Multiple matches are all returned (more than one Moonlight client per slot is
+supported).
+
+1. **Command-line `host:port` match** — find all `moonlight` processes whose
+   command line contains `<SlotDto.Host>:<SlotDto.Port>`. Covers every instance
+   launched by Lance and any manually launched instance that was given the
+   explicit host:port argument.
+2. **Window title prefix match** — for processes not matched by method 1, check
+   whether the process's main window title starts with `"<slot.Name> - "` (e.g.
+   `"Lance-1 - "`). Covers manually launched Moonlight instances that connected
+   to the slot without an explicit host:port on the command line. Window title
+   format confirmed as `"<sunshine_name> - Moonlight"`.
+
+`[DEFER-LINUX-WINDETECT]` — Window title detection (method 2) is **Windows-only
+in Phase 2**. On Linux, `Process.MainWindowTitle` is not supported without X11
+tooling. Method 1 (command-line match) still works on Linux. Full Linux window
+title support deferred to **Phase 3** (options: `wmctrl -lp` or X11 P/Invoke).
+
 ### Phase 1 connect (no sessions)
 
 Phase 1 has no session layer, so connect is the simpler client-driven sequence:
@@ -215,6 +238,11 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   the binary rather than under `/etc/`, `/var/lib/`, `/var/log/`, or `~/.config/`.
   Agent paths: revisit when the daemon/service install is added (Phase 4). Client
   config: XDG compliance (Phase 3). Full table in SPEC.md `[DEFER-PATHS]`.
+- `[DEFER-LINUX-WINDETECT]` **Phase 3** — Linux window title detection for
+  Moonlight instance matching (method 2). Windows uses `Process.MainWindowTitle`;
+  Linux needs `wmctrl -lp` or X11 P/Invoke. Method 1 (command-line host:port)
+  still covers Lance-launched instances on Linux. See "Moonlight instance
+  detection" above.
 - `[DEFER-PAIR-AUTO]` **Phase 4** — Automated slot pairing. Currently each clone
   slot must be paired with Moonlight manually once before first use (each clone
   has its own `file_state` / unique UUID). Proposed automation: when cloning,

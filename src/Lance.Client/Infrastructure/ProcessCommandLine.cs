@@ -6,38 +6,61 @@ namespace Lance.Client.Infrastructure;
 
 internal static class ProcessCommandLine
 {
-    internal static IReadOnlyList<(int Pid, string CommandLine)> FindMoonlightProcesses(string executableName)
+    internal static IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> FindMoonlightProcesses(string executableName)
     {
         string procName = Path.GetFileNameWithoutExtension(executableName);
         Process[] processes = Process.GetProcessesByName(procName);
-        List<(int, string)> results = new();
+        List<(int, string, string?)> results = new();
 
         foreach (Process proc in processes)
         {
             int pid = proc.Id;
+            string? windowTitle = OperatingSystem.IsWindows()
+                ? (string.IsNullOrEmpty(proc.MainWindowTitle) ? null : proc.MainWindowTitle)
+                : null; // [DEFER-LINUX-WINDETECT] window title detection on Linux deferred to Phase 3
             proc.Dispose();
 
             string? cmdLine = Read(pid);
             if (cmdLine is not null)
-            {
-                results.Add((pid, cmdLine));
-            }
+                results.Add((pid, cmdLine, windowTitle));
         }
 
+        return results;
+    }
+
+    // Finds all Moonlight PIDs associated with a slot using two methods in order:
+    // 1. host:port substring in the process command line (covers Lance-launched instances)
+    // 2. window title prefix "<slotName> - " (covers manually-launched instances; Windows only)
+    internal static IReadOnlyList<int> FindMoonlightsForSlot(
+        IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights,
+        string hostPort,
+        string slotName)
+    {
+        List<int> results = new();
+        string titlePrefix = slotName + " - ";
+        foreach ((int pid, string cmdLine, string? windowTitle) in moonlights)
+        {
+            if (cmdLine.Contains(hostPort, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(pid);
+                continue;
+            }
+            if (windowTitle is not null &&
+                windowTitle.StartsWith(titlePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(pid);
+            }
+        }
         return results;
     }
 
     internal static string? Read(int pid)
     {
         if (OperatingSystem.IsLinux())
-        {
             return ReadLinux(pid);
-        }
 
         if (OperatingSystem.IsWindows())
-        {
             return ReadWindows(pid);
-        }
 
         return null;
     }

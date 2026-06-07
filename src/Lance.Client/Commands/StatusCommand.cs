@@ -51,26 +51,21 @@ internal static class StatusCommand
                 return result.ExitCode;
             }
 
-            // Cross-reference Moonlight processes by host:port
-            IReadOnlyList<(int Pid, string CommandLine)> moonlights =
+            // Cross-reference Moonlight processes by host:port and window title
+            IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights =
                 ProcessCommandLine.FindMoonlightProcesses(executableName);
 
-            Dictionary<int, int> slotToMoonlightPid = new();
+            Dictionary<int, IReadOnlyList<int>> slotToMoonlightPids = new();
             foreach (SlotDto slot in result.Value!.Slots)
             {
-                string hostPort = $"{slot.Host}:{slot.Port}";
-                foreach ((int Pid, string CommandLine) m in moonlights)
-                {
-                    if (m.CommandLine.Contains(hostPort, StringComparison.OrdinalIgnoreCase))
-                    {
-                        slotToMoonlightPid[slot.Id] = m.Pid;
-                        break;
-                    }
-                }
+                IReadOnlyList<int> pids = ProcessCommandLine.FindMoonlightsForSlot(
+                    moonlights, $"{slot.Host}:{slot.Port}", slot.Name);
+                if (pids.Count > 0)
+                    slotToMoonlightPids[slot.Id] = pids;
             }
 
             IAnsiConsole console = CommandHelpers.MakeConsole(noColor);
-            RenderStatusTable(console, result.Value!.Slots, slotToMoonlightPid);
+            RenderStatusTable(console, result.Value!.Slots, slotToMoonlightPids);
             return ExitCodes.Success;
         });
 
@@ -78,7 +73,7 @@ internal static class StatusCommand
     }
 
     private static void RenderStatusTable(
-        IAnsiConsole console, SlotDto[] slots, Dictionary<int, int> slotToMoonlightPid)
+        IAnsiConsole console, SlotDto[] slots, Dictionary<int, IReadOnlyList<int>> slotToMoonlightPids)
     {
         Table table = new Table()
             .Border(TableBorder.Rounded)
@@ -87,7 +82,7 @@ internal static class StatusCommand
             .AddColumn("Status")
             .AddColumn(new TableColumn("Port").RightAligned())
             .AddColumn(new TableColumn("Apollo PID").RightAligned())
-            .AddColumn(new TableColumn("Moonlight PID").RightAligned())
+            .AddColumn(new TableColumn("Moonlight PIDs").RightAligned())
             .AddColumn("Config");
 
         foreach (SlotDto slot in slots)
@@ -98,8 +93,8 @@ internal static class StatusCommand
             else statusCell = "[yellow]Allocated[/]";
 
             string apolloPid = slot.ProcessId?.ToString() ?? "—";
-            string moonlightPid = slotToMoonlightPid.TryGetValue(slot.Id, out int mpid)
-                ? mpid.ToString()
+            string moonlightPid = slotToMoonlightPids.TryGetValue(slot.Id, out IReadOnlyList<int>? pids)
+                ? string.Join(", ", pids)
                 : "—";
 
             string nameCell = Markup.Escape(slot.Name);
