@@ -13,7 +13,7 @@
 - Slot port (clone N): `template_port - (N × portStep)`, `portStep = 1000` (**subtracts**)
 - Max slots: **8**
 - Apollo startup timeout: 30s (poll port via TCP every 500ms)
-- Apollo stop timeout: 10s graceful wait, then force-kill. `[INVESTIGATE-STOP]` — Phase 1 testing shows graceful stop consistently times out; see PLAN.md.
+- Apollo stop timeout: 10s graceful wait, then force-kill. `[INVESTIGATE-STOP]` **Resolved (Phase 2).** `CloseMainWindow()` returns `false` on Apollo's headless process; the agent now skips the wait and calls `Kill()` directly when that happens.
 - Apollo executable (Lance's direct-launch path): `sunshine.exe` (confirmed).
   Note: the *installed service* path runs `sunshinesvc.exe` + `apollo.exe`, which
   Lance does not use — see `[DEFER-SVC]`. Template config: `sunshine.conf`; clone
@@ -147,8 +147,8 @@ optionally stop Apollo, optionally deallocate. See ARCHITECTURE.md disconnect fl
 
 > **OS display enumeration:** Windows uses `EnumDisplayDevicesW` + `EnumDisplaySettingsExW`
 > (`user32.dll`). Linux uses Xrandr 1.5 via `libX11`/`libXrandr` P/Invoke — requires
-> X11 or XWayland. Pure Wayland without XWayland is not supported yet. A more robust
-> approach covering both X11 and native Wayland natively is planned for a later phase.
+> X11 or XWayland. Pure Wayland without XWayland is not supported in Phase 2; native
+> Wayland enumeration (`xdg-output` / `wlr-output-management`) is Phase 3 Slice 2.
 
 **Exit codes:** 0 success · 1 generic · 2 no free slots (all running slots are connected) · 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
 required state · 7 config resolution failed.

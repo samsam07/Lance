@@ -210,6 +210,11 @@ without changing the deployment model.
 - Integration tests (agent + client, real HTTP, no mocks).
 - Client config XDG compliance (`[DEFER-PATHS]`).
 - `[VERIFY-APOLLO]` — Apollo Linux privilege model; gate Linux agent work on this.
+- TLS cert pinning / PEM support on the client (`[DEFER-TLS-PINNING]`).
+- Session layer — `POST /sessions`, monitor↔slot mapping, state persistence
+  (`[SESSION-TBD]`). Retained as a slice; drop it if daily use proves the
+  client-driven model sufficient.
+- Pure Wayland/XWayland support for `lance monitors`.
 
 **Out of scope (deferred)**
 - Windows service / daemon install (Phase 4).
@@ -238,6 +243,11 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      0,X,Y,-1,-1` to move by title, or `XMoveWindow` via X11 P/Invoke. Prefer
      `wmctrl` (no P/Invoke); fall back gracefully if unavailable. Requires
      `[DEFER-LINUX-WINDETECT]` to be done first (need the title to target the window).
+   - **Pure Wayland support for `lance monitors`.** Current Linux path uses
+     Xrandr 1.5 via `libX11`/`libXrandr` — requires X11 or XWayland. Pure
+     Wayland (no XWayland) needs the `xdg-output` or `wlr-output-management`
+     Wayland protocol. Detect at runtime which path is available; fall back
+     gracefully to X11 if Wayland enumeration is unavailable.
    - `[VERIFY-APOLLO]` — Confirm Apollo's Linux privilege model: does
      `sunshine.exe` (or the Linux binary) need `sudo` / `CAP_NET_BIND_SERVICE`?
      Document findings in ARCHITECTURE.md; adjust agent launch path accordingly.
@@ -254,14 +264,34 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
    (default `~/.config/lance/lance.json`) before the binary-adjacent fallback.
    Windows behaviour unchanged. Document the full lookup order in README.
 
+5. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
+   Client currently skips TLS validation unconditionally. Add a `tls.certPath`
+   field to `lance.json`: when set, load the PEM/DER file and pin the agent's
+   cert against it instead of accepting all certs. When absent, behaviour is
+   unchanged (accept all — suitable for trusted networks). Agent side: no
+   change needed; this is client-only.
+
+6. **Session layer (`[SESSION-TBD]`).** *(Tentative — drop if the
+   client-driven model proves sufficient in daily use.)*
+   Add a lightweight session concept: the agent tracks which monitor maps to
+   which slot for the duration of a connect/disconnect cycle, persisting the
+   mapping in a small state file. Enables `lance status` to show monitor IDs
+   alongside slot IDs without the client re-deriving the mapping, and enables
+   crash recovery (reconnect restores the prior mapping). Scope and shape TBD
+   once daily use reveals whether the gap is real.
+
 ### Review-depth guide (Phase 3)
 - **Daily-use fixes** (1): varies per issue — investigate before coding;
   config-only changes are low risk; code changes follow normal review depth.
-- **Linux completions** (2): moderate — wmctrl availability logic is the
-  subtle part; review fallback paths.
+- **Linux completions** (2): moderate — wmctrl availability and Wayland
+  detection logic are the subtle parts; review all fallback paths.
 - **Integration tests** (3): architecture-zone — test boundaries define what
   we trust; review which layers are real vs. faked.
 - **XDG paths** (4): plumbing — review the lookup order matches the spec.
+- **TLS pinning** (5): moderate — cert loading and validation callback are
+  the correctness-critical parts; review closely.
+- **Session layer** (6): architecture-zone if it proceeds — new agent state
+  and a new endpoint; review every line.
 
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*

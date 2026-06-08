@@ -237,10 +237,9 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   a remote IP) is the detection mechanism. Agent probes at query time.
 - `[DEFER-1]` **Closed.** Moot without sessions — slot 0 is the audio slot; no
   multi-session conflict is possible.
-- `[INVESTIGATE-STOP]` — Apollo graceful stop consistently times out in Phase 1
-  testing (`CloseMainWindow` is likely a no-op on Apollo's tray/headless process).
-  Phase 2 Slice 1 fixes this: check `CloseMainWindow()` return value — if `false`,
-  skip the graceful wait and proceed directly to `Kill()`.
+- `[INVESTIGATE-STOP]` **Resolved (Phase 2 Slice 1).** `CloseMainWindow()` returns
+  `false` on Apollo's tray/headless process — the graceful wait was always wasted.
+  Fix: check the return value; if `false`, skip the wait and call `Kill()` directly.
 - `[DEFER-PATHS]` — All default file paths (agent config, TLS cert, log file; client
   config) follow Windows / "run from folder" conventions and are non-standard on
   Linux. `lance-agent.pfx`, `lance-agent.json`, and `lance-agent.log` resolve beside
