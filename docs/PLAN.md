@@ -7,12 +7,12 @@ Development proceeds in phases. These descriptions serve as **task-attribution g
 - **Phase 3 — Beta:** Makes the tool shareable. Feature-complete but not yet public-ready — integration tests, session layer (monitor↔slot mapping, state files), polish, and anything that requires Phase-2 features to be stable first. A task belongs here if it adds the session abstraction or is about hardening rather than new capability.
 - **Phase 4 — Release:** Hardens and packages for distribution. Windows service / daemon install, auto-managing the Apollo service/watchdog (`[DEFER-SVC]`), installer, and public-facing hardening. A task belongs here if it changes the deployment/install model rather than application logic.
 
-Only Phase 1 is detailed below. Later phases are deliberately left as one-liners
-until Phase 1 ships — to avoid planning ahead of what we've learned.
+Phases 1 and 2 are detailed below with full slice breakdowns. Phase 3 is
+fleshed out as Phase 2 shipped; Phase 4 remains a one-liner.
 
 ---
 
-## Phase 1 — Walking skeleton (MVP)
+## Phase 1 — MVP *(✓ Complete)*
 
 **Goal:** the smallest end-to-end tool that proves the concept. Used personally
 to validate that orchestrating parallel Apollo + Moonlight actually works.
@@ -95,7 +95,7 @@ Unit and integration tests are deferred — no test code is written during Phase
 
 ---
 
-## Phase 2 — Alpha
+## Phase 2 — Alpha *(✓ Complete)*
 
 **Goal:** a fully functional personal tool. Auth/TLS secures the API, slot
 Connected state enables free-slot detection, and `connect`/`disconnect` use the
@@ -188,15 +188,80 @@ Phase 2 is when test code is first written. Aim: unit tests for the slot
 Connected-state TCP probe logic (Slice 3) and the connect free-slot check +
 partial-success logic (Slice 4) at minimum. Integration tests deferred to Phase 3.
 
+**Open deferred items carried forward:**
+- `[DEFER-LINUX-WINDETECT]` → Phase 3
+- `[DEFER-LINUX-WINPOS]` → Phase 3
+- `[DEFER-PATHS]` client XDG compliance → Phase 3
+- `[VERIFY-APOLLO]` Linux agent privilege model → verify before Linux deployment
+
+---
+
 ## Phase 3 — Beta
-Feature-complete but not public-ready. *(TBD.)*
 
-Includes `[DEFER-LINUX-WINDETECT]` — Linux window title detection for Moonlight
-instance matching (method 2). See ARCHITECTURE.md for options and constraints.
+**Goal:** takes a working Alpha and makes it solid. Fixes and polish found
+during daily use come first; then Linux client completions; then integration
+tests and hardening. A task belongs here if it fixes something discovered in
+use, closes a Linux gap, adds integration coverage, or improves resilience —
+without changing the deployment model.
 
-Includes `[DEFER-LINUX-WINPOS]` — Moonlight monitor placement on Linux. Qt's
-`-geometry +X+Y` is the likely path (same mechanism as Windows); verify on
-X11/XWayland before enabling. See ARCHITECTURE.md.
+**In scope**
+- Daily-use fixes and polish (audio routing, anything surfaced during use).
+- Linux client completions deferred from Phase 2.
+- Integration tests (agent + client, real HTTP, no mocks).
+- Client config XDG compliance (`[DEFER-PATHS]`).
+- `[VERIFY-APOLLO]` — Apollo Linux privilege model; gate Linux agent work on this.
+
+**Out of scope (deferred)**
+- Windows service / daemon install (Phase 4).
+- Auto-managing the Apollo service/watchdog `[DEFER-SVC]` (Phase 4).
+- `[DEFER-PAIR-AUTO]` automated slot pairing (Phase 4).
+
+### Phase 3 — slice breakdown (review gates)
+
+Same rules as Phase 1 and 2: one slice at a time, review gate after each.
+
+1. **Daily-use fixes and polish.**
+   Issues surfaced during personal daily use. Known at Phase 3 open:
+   - Audio routing — audio plays on the remote server instead of being sent
+     to the host. Likely a config mutation issue in clone slots (wrong value
+     cloned or missing override); may be config-only or require code changes.
+     Investigate before assuming scope.
+   - *(Further items added as discovered.)*
+
+2. **Linux client completions.**
+   - `[DEFER-LINUX-WINDETECT]` — Window title detection for Moonlight instance
+     matching (method 2). On Linux, `Process.MainWindowTitle` is not supported;
+     use `wmctrl -lp` to enumerate window titles and cross-reference by PID.
+     Gate on `wmctrl` availability; fall back gracefully to method 1 only.
+   - `[DEFER-LINUX-WINPOS]` — Moonlight monitor placement. Windows uses
+     `SetWindowPos(SWP_NOSIZE)`; Linux equivalent: `wmctrl -r <title> -e
+     0,X,Y,-1,-1` to move by title, or `XMoveWindow` via X11 P/Invoke. Prefer
+     `wmctrl` (no P/Invoke); fall back gracefully if unavailable. Requires
+     `[DEFER-LINUX-WINDETECT]` to be done first (need the title to target the window).
+   - `[VERIFY-APOLLO]` — Confirm Apollo's Linux privilege model: does
+     `sunshine.exe` (or the Linux binary) need `sudo` / `CAP_NET_BIND_SERVICE`?
+     Document findings in ARCHITECTURE.md; adjust agent launch path accordingly.
+
+3. **Integration tests.**
+   In-process agent host (`WebApplicationFactory` or `TestServer`), real
+   slot operations against a temp config dir, and client HTTP calls over
+   localhost. Target: allocate/start/stop/deallocate happy path; free-slot
+   capacity logic; auth token enforcement; Connected-state TCP probe with a
+   real listener. No mocking of HTTP or file I/O at this layer.
+
+4. **Client config XDG compliance (`[DEFER-PATHS]`).**
+   On Linux, resolve `lance.json` from `$XDG_CONFIG_HOME/lance/lance.json`
+   (default `~/.config/lance/lance.json`) before the binary-adjacent fallback.
+   Windows behaviour unchanged. Document the full lookup order in README.
+
+### Review-depth guide (Phase 3)
+- **Daily-use fixes** (1): varies per issue — investigate before coding;
+  config-only changes are low risk; code changes follow normal review depth.
+- **Linux completions** (2): moderate — wmctrl availability logic is the
+  subtle part; review fallback paths.
+- **Integration tests** (3): architecture-zone — test boundaries define what
+  we trust; review which layers are real vs. faked.
+- **XDG paths** (4): plumbing — review the lookup order matches the spec.
 
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*

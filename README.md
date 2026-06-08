@@ -264,9 +264,9 @@ Full sample files are in [`samples/`](samples/).
   (`lance start <id>`), open Moonlight and add the host on that slot's port
   (`host:<port>`), complete the PIN pairing, then stop the slot
   (`lance stop <id>`). Only needs doing once per slot.
-- **Monitor placement:** Moonlight has no CLI flag to open on a specific physical
-  monitor. `--monitors` selects which streams to open and what resolution each
-  requests; window placement is done manually.
+- **Monitor placement:** on Windows, Lance automatically moves each Moonlight
+  window to its target monitor after launch. On Linux, windows open on the
+  primary monitor; manual placement is needed until Phase 3 adds Linux support.
 - **TLS:** The agent always uses HTTPS with a self-signed certificate. The client
   skips certificate validation automatically (configurable cert pinning is planned
   for a later release).
