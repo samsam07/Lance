@@ -22,6 +22,51 @@ internal static class CommandHelpers
         return config?.Agent?.Token;
     }
 
+    // Parses a comma-separated slot-id list ("1,2,3") into distinct ids, preserving
+    // order. Duplicates are dropped with a warning (intent is clear); any non-integer
+    // or empty token (e.g. a stray comma) is a hard parse error. Range is not checked
+    // here — the agent is the authority and returns a proper error per slot.
+    public static int[]? ParseSlotIds(string raw, out string? error)
+    {
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            error = "no slot ids provided";
+            return null;
+        }
+
+        string[] tokens = raw.Split(',');
+        List<int> ids = new(tokens.Length);
+        HashSet<int> seen = new();
+
+        foreach (string token in tokens)
+        {
+            string trimmed = token.Trim();
+            if (trimmed.Length == 0)
+            {
+                error = $"invalid slot ids '{raw}' — empty id (check for a stray or trailing comma)";
+                return null;
+            }
+
+            if (!int.TryParse(trimmed, out int id))
+            {
+                error = $"invalid slot id '{trimmed}' — expected a comma-separated list of integers (e.g. 1,2,3)";
+                return null;
+            }
+
+            if (!seen.Add(id))
+            {
+                Log.Warning("Duplicate slot id {Id} ignored", id);
+                continue;
+            }
+
+            ids.Add(id);
+        }
+
+        return ids.ToArray();
+    }
+
     public static IAnsiConsole MakeConsole(bool noColor)
     {
         AnsiConsoleSettings settings = new()

@@ -11,13 +11,19 @@ internal static class ConfigCommand
 {
     public static Command Build(GlobalOptions globals)
     {
-        Argument<int> slotIdArg = new("slot_id") { Description = "ID of the slot whose config page to open" };
+        Argument<string> slotIdsArg = new("ids") { Description = "Slot IDs whose config page to open (comma-separated, e.g. 1,2,3)" };
 
-        Command command = new("config", "Open the Apollo config page for a slot in the default browser");
-        command.Add(slotIdArg);
+        Command command = new("config", "Open the Apollo config page for one or more slots in the default browser");
+        command.Add(slotIdsArg);
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
-            int slotId = pr.GetValue(slotIdArg);
+            int[]? slotIds = CommandHelpers.ParseSlotIds(pr.GetValue(slotIdsArg)!, out string? parseError);
+            if (slotIds is null)
+            {
+                Log.Error("{Error}", parseError);
+                return ExitCodes.Generic;
+            }
+
             ClientConfig? config = globals.GetConfig();
             string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
@@ -33,27 +39,36 @@ internal static class ConfigCommand
             string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
             using AgentClient client = new(agentUrl, timeout, token);
-            AgentResult<ConfigUrlResponse> result = await client.GetSlotConfigUrlAsync(slotId, ct);
+            bool anyFailed = false;
 
-            if (result.IsUnreachable)
+            foreach (int slotId in slotIds)
             {
-                Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
-                return result.ExitCode;
+                AgentResult<ConfigUrlResponse> result = await client.GetSlotConfigUrlAsync(slotId, ct);
+
+                // An unreachable agent will not recover within this command — stop now
+                // rather than incur a timeout for every remaining slot.
+                if (result.IsUnreachable)
+                {
+                    Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
+                    return result.ExitCode;
+                }
+
+                if (!result.IsSuccess)
+                {
+                    Log.Error("Slot {Id} config failed — {ErrorCode}: {ErrorMessage}", slotId, result.ErrorCode, result.ErrorMessage);
+                    anyFailed = true;
+                    continue;
+                }
+
+                // Failing to open the browser is not an error — print the URL and move on.
+                string configUrl = result.Value!.Url;
+                if (!TryOpenUrl(configUrl))
+                {
+                    Console.WriteLine(configUrl);
+                }
             }
 
-            if (!result.IsSuccess)
-            {
-                Log.Error("Agent returned error {ErrorCode}: {ErrorMessage}", result.ErrorCode, result.ErrorMessage);
-                return result.ExitCode;
-            }
-
-            string configUrl = result.Value!.Url;
-            if (!TryOpenUrl(configUrl))
-            {
-                Console.WriteLine(configUrl);
-            }
-
-            return ExitCodes.Success;
+            return anyFailed ? ExitCodes.Generic : ExitCodes.Success;
         });
 
         return command;

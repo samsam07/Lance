@@ -9,13 +9,19 @@ internal static class StopCommand
 {
     public static Command Build(GlobalOptions globals)
     {
-        Argument<int> slotIdArg = new("id") { Description = "Slot ID to stop" };
+        Argument<string> slotIdsArg = new("ids") { Description = "Slot IDs to stop (comma-separated, e.g. 1,2,3)" };
 
-        Command command = new("stop", "Stop the Apollo instance for a slot");
-        command.Add(slotIdArg);
+        Command command = new("stop", "Stop the Apollo instance for one or more slots");
+        command.Add(slotIdsArg);
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
-            int slotId = pr.GetValue(slotIdArg);
+            int[]? slotIds = CommandHelpers.ParseSlotIds(pr.GetValue(slotIdsArg)!, out string? parseError);
+            if (slotIds is null)
+            {
+                Log.Error("{Error}", parseError);
+                return ExitCodes.Generic;
+            }
+
             ClientConfig? config = globals.GetConfig();
             string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
 
@@ -31,22 +37,31 @@ internal static class StopCommand
             string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
             using AgentClient client = new(agentUrl, timeout, token);
-            AgentResult<bool> result = await client.StopSlotAsync(slotId, ct);
+            bool anyFailed = false;
 
-            if (result.IsUnreachable)
+            foreach (int slotId in slotIds)
             {
-                Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
-                return result.ExitCode;
+                AgentResult<bool> result = await client.StopSlotAsync(slotId, ct);
+
+                // An unreachable agent will not recover within this command — stop now
+                // rather than incur a timeout for every remaining slot.
+                if (result.IsUnreachable)
+                {
+                    Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
+                    return result.ExitCode;
+                }
+
+                if (!result.IsSuccess)
+                {
+                    Log.Error("Slot {Id} failed to stop — {ErrorCode}: {ErrorMessage}", slotId, result.ErrorCode, result.ErrorMessage);
+                    anyFailed = true;
+                    continue;
+                }
+
+                Log.Information("Slot {Id} stopped", slotId);
             }
 
-            if (!result.IsSuccess)
-            {
-                Log.Error("Slot {Id} failed to stop — {ErrorCode}: {ErrorMessage}", slotId, result.ErrorCode, result.ErrorMessage);
-                return result.ExitCode;
-            }
-
-            Log.Information("Slot {Id} stopped", slotId);
-            return ExitCodes.Success;
+            return anyFailed ? ExitCodes.Generic : ExitCodes.Success;
         });
 
         return command;

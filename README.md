@@ -148,15 +148,17 @@ lance disconnect --keep-running
 lance disconnect --purge
 
 # Low-level slot management
-lance slots                    # list all slots
-lance allocate <count>         # ensure the pool has exactly <count> slots
-lance start <id>               # start a slot's Apollo instance
-lance stop <id>                # stop a slot's Apollo instance
-lance deallocate <id>          # remove a slot config (slot must be stopped)
-lance deallocate <id> --force  # stop if running, then remove config
+# <ids> is one id or a comma-separated list (e.g. 1 or 1,2,3); each id is
+# processed independently (partial success — a failed id is logged, the rest proceed)
+lance slots                     # list all slots
+lance allocate <count>          # ensure the pool has exactly <count> slots
+lance start <ids>               # start each slot's Apollo instance
+lance stop <ids>                # stop each slot's Apollo instance
+lance deallocate <ids>          # remove slot configs (slots must be stopped)
+lance deallocate <ids> --force  # stop if running, then remove config
 
-# Open Apollo's web config page for a slot in the browser
-lance config <id>
+# Open Apollo's web config page for one or more slots in the browser
+lance config <ids>
 ```
 
 **Global options** (work with any command):

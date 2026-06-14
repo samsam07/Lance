@@ -132,8 +132,17 @@ the template, append it after the last line. Preserve template line ordering.
 
 Token resolution (first match wins): `--token` CLI flag → `lance.json` `agent.token` → no token sent (works if agent has no token configured).
 
-**Commands:** `lance slots`, `lance status`, `lance config <slot_id>`
-(opens config URL: `xdg-open` / shell-execute; on failure print URL, exit 0).
+**Commands:** `lance slots`, `lance status`, `lance config <ids>`
+(opens config URL: `xdg-open` / shell-execute; on browser-open failure print URL).
+
+**Multi-id slot commands:** `start`, `stop`, `deallocate`, and `config` take a
+**comma-separated list of slot ids** (`<ids>`, e.g. `1,2,3`; a single id like `1`
+still works). Ids are de-duplicated (duplicate → warning, kept once); a non-integer
+or empty token (stray comma) is a parse error → exit 1. Each id is processed
+independently as its own agent call — **partial success**: a per-slot agent error is
+logged and the next id proceeds; the command exits 0 only if every id succeeded,
+else exit 1. An **unreachable agent short-circuits** the loop (exit 3) rather than
+timing out once per remaining id. `--force` on `deallocate` applies to every id.
 
 `lance monitors` — list local physical monitors (ID, name, resolution, position,
 primary flag). No agent required. Use to pick IDs for `--monitors`.

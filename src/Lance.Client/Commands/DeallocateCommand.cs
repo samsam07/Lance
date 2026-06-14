@@ -9,18 +9,24 @@ internal static class DeallocateCommand
 {
     public static Command Build(GlobalOptions globals)
     {
-        Argument<int> slotIdArg = new("id") { Description = "Slot ID to deallocate" };
+        Argument<string> slotIdsArg = new("ids") { Description = "Slot IDs to deallocate (comma-separated, e.g. 1,2,3)" };
         Option<bool> forceOption = new("--force", "-f")
         {
-            Description = "Stop the slot if running, then deallocate (skips the running check)"
+            Description = "Stop each slot if running, then deallocate (skips the running check)"
         };
 
-        Command command = new("deallocate", "Remove a slot's config files (refuses if running unless --force is given)");
-        command.Add(slotIdArg);
+        Command command = new("deallocate", "Remove one or more slots' config files (refuses if running unless --force is given)");
+        command.Add(slotIdsArg);
         command.Add(forceOption);
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
-            int slotId = pr.GetValue(slotIdArg);
+            int[]? slotIds = CommandHelpers.ParseSlotIds(pr.GetValue(slotIdsArg)!, out string? parseError);
+            if (slotIds is null)
+            {
+                Log.Error("{Error}", parseError);
+                return ExitCodes.Generic;
+            }
+
             bool force = pr.GetValue(forceOption);
             ClientConfig? config = globals.GetConfig();
             string? agentUrl = CommandHelpers.ResolveAgentUrl(pr, globals, config);
@@ -37,24 +43,33 @@ internal static class DeallocateCommand
             string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
             using AgentClient client = new(agentUrl, timeout, token);
-            AgentResult<bool> result = force
-                ? await client.ForceDeallocateSlotAsync(slotId, ct)
-                : await client.DeallocateSlotAsync(slotId, ct);
+            bool anyFailed = false;
 
-            if (result.IsUnreachable)
+            foreach (int slotId in slotIds)
             {
-                Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
-                return result.ExitCode;
+                AgentResult<bool> result = force
+                    ? await client.ForceDeallocateSlotAsync(slotId, ct)
+                    : await client.DeallocateSlotAsync(slotId, ct);
+
+                // An unreachable agent will not recover within this command — stop now
+                // rather than incur a timeout for every remaining slot.
+                if (result.IsUnreachable)
+                {
+                    Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
+                    return result.ExitCode;
+                }
+
+                if (!result.IsSuccess)
+                {
+                    Log.Error("Slot {Id} deallocation failed — {ErrorCode}: {ErrorMessage}", slotId, result.ErrorCode, result.ErrorMessage);
+                    anyFailed = true;
+                    continue;
+                }
+
+                Log.Information("Slot {Id} deallocated", slotId);
             }
 
-            if (!result.IsSuccess)
-            {
-                Log.Error("Slot {Id} deallocation failed — {ErrorCode}: {ErrorMessage}", slotId, result.ErrorCode, result.ErrorMessage);
-                return result.ExitCode;
-            }
-
-            Log.Information("Slot {Id} deallocated", slotId);
-            return ExitCodes.Success;
+            return anyFailed ? ExitCodes.Generic : ExitCodes.Success;
         });
 
         return command;
