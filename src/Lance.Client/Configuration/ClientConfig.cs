@@ -24,7 +24,9 @@ public sealed record RemoteClientConfig
         "--fps", "60",
         "--video-codec", "HEVC",
         "--bitrate", "80000",
-        "--no-vsync"
+        "--no-vsync",
+        "--capture-system-keys", "fullscreen",
+        "--yuv444"
     ];
 }
 

@@ -13,7 +13,10 @@
       "HEVC",
       "--bitrate",
       "80000",
-      "--no-vsync"
+      "--no-vsync",
+      "--capture-system-keys",
+      "fullscreen",
+      "--yuv444"
     ]
   },
   "ui": {
