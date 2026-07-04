@@ -205,7 +205,7 @@ use, closes a Linux gap, adds integration coverage, or improves resilience —
 without changing the deployment model.
 
 **In scope**
-- Daily-use fixes and polish (audio routing, anything surfaced during use).
+- Daily-use fixes and polish (anything surfaced during use).
 - Linux client completions deferred from Phase 2.
 - Integration tests (agent + client, real HTTP, no mocks).
 - Client config XDG compliance (`[DEFER-PATHS]`).
@@ -215,8 +215,6 @@ without changing the deployment model.
   (`[SESSION-TBD]`). Retained as a slice; drop it if daily use proves the
   client-driven model sufficient.
 - Pure Wayland/XWayland support for `lance monitors`.
-- `[RESEARCH-VDISPLAY]` — remote physical display management. Research task;
-  implementation phase TBD on findings.
 
 **Out of scope (deferred)**
 - Windows service / daemon install (Phase 4).
@@ -228,55 +226,10 @@ without changing the deployment model.
 Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 
 1. **Daily-use fixes and polish.**
-   Issues surfaced during personal daily use. Known at Phase 3 open:
-   - Audio routing — audio plays on the remote server instead of being sent
-     to the host. Likely a config mutation issue in clone slots (wrong value
-     cloned or missing override); may be config-only or require code changes.
-     Investigate before assuming scope.
-   - *(Further items added as discovered.)*
+   Issues surfaced during personal daily use.
+   - *(Items added as discovered.)*
 
-2. **`[RESEARCH-VDISPLAY]` — Remote physical display management.** *(Research
-   task — implementation scope TBD on findings.)*
-
-   **Goal:** replicate the Windows RDP/MSTSC experience — when a Lance session
-   connects, the remote machine's physical displays turn off or go dark, and the
-   host drives virtual displays only. Currently the remote screen stays on,
-   mirroring what the host is doing.
-
-   **Current state:**
-   - Slot 0 is manually configured (in Apollo) to *not* create virtual screens.
-     This is intentional: UAC dialogs and other system UI on Windows render on
-     the physical display stack, not virtual ones. If Slot 0 used virtual screens,
-     UAC prompts would appear on a virtual display that nothing is watching.
-   - Clone slots (1…N) do create virtual displays — one per connected monitor.
-   - As a result the remote's physical screens stay active and mirror the session.
-
-   **Research questions (answer before designing anything):**
-   - Can the remote's physical displays be disabled programmatically on Windows
-     (e.g. via `SetDisplayConfig`, a DDC/CI command, or an Apollo hook) and
-     reliably re-enabled on disconnect?
-   - Does disabling physical displays break UAC rendering or other system UI that
-     must stay visible to a local administrator?
-   - Does Apollo/Sunshine provide a hook or config option for this, or must Lance
-     trigger it externally (agent-side, at `POST /slots/{id}/start` time)?
-   - Is the behaviour the same across Windows 10 and 11?
-   - What is the correct recovery path if Lance crashes mid-session and the
-     physical displays were left disabled?
-   - **Input blocking (vague — needs scoping):** should Lance also disable
-     keyboard, mouse, and trackpad input on the remote server while a session
-     is active, so that a bystander at the remote machine cannot interfere with
-     the session? Windows has `BlockInput` (requires admin; blocks all HID
-     input system-wide) and filter-driver approaches. Open questions: is this
-     desirable at all, or does it create more problems than it solves (e.g.
-     locked out if Lance crashes)? If yes, is it opt-in via config or always
-     on? Does it interact with UAC (UAC switches to a secure desktop that may
-     bypass `BlockInput`)? Research together with display management; spec both
-     before implementing either.
-
-   **Output of this research slice:** findings documented in ARCHITECTURE.md;
-   decision on whether implementation belongs here (Phase 3) or is deferred.
-
-3. **Linux client completions.**
+2. **Linux client completions.**
    - `[DEFER-LINUX-WINDETECT]` — Window title detection for Moonlight instance
      matching (method 2). On Linux, `Process.MainWindowTitle` is not supported;
      use `wmctrl -lp` to enumerate window titles and cross-reference by PID.
@@ -295,26 +248,26 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      `sunshine.exe` (or the Linux binary) need `sudo` / `CAP_NET_BIND_SERVICE`?
      Document findings in ARCHITECTURE.md; adjust agent launch path accordingly.
 
-4. **Integration tests.**
+3. **Integration tests.**
    In-process agent host (`WebApplicationFactory` or `TestServer`), real
    slot operations against a temp config dir, and client HTTP calls over
    localhost. Target: allocate/start/stop/deallocate happy path; free-slot
    capacity logic; auth token enforcement; Connected-state TCP probe with a
    real listener. No mocking of HTTP or file I/O at this layer.
 
-5. **Client config XDG compliance (`[DEFER-PATHS]`).**
+4. **Client config XDG compliance (`[DEFER-PATHS]`).**
    On Linux, resolve `lance.json` from `$XDG_CONFIG_HOME/lance/lance.json`
    (default `~/.config/lance/lance.json`) before the binary-adjacent fallback.
    Windows behaviour unchanged. Document the full lookup order in README.
 
-6. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
+5. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
    Client currently skips TLS validation unconditionally. Add a `tls.certPath`
    field to `lance.json`: when set, load the PEM/DER file and pin the agent's
    cert against it instead of accepting all certs. When absent, behaviour is
    unchanged (accept all — suitable for trusted networks). Agent side: no
    change needed; this is client-only.
 
-7. **Session layer (`[SESSION-TBD]`).** *(Tentative — drop if the
+6. **Session layer (`[SESSION-TBD]`).** *(Tentative — drop if the
    client-driven model proves sufficient in daily use.)*
    Add a lightweight session concept: the agent tracks which monitor maps to
    which slot for the duration of a connect/disconnect cycle, persisting the
@@ -326,16 +279,14 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 ### Review-depth guide (Phase 3)
 - **Daily-use fixes** (1): varies per issue — investigate before coding;
   config-only changes are low risk; code changes follow normal review depth.
-- **Virtual display research** (2): research task — no code until findings are
-  documented and the implementation approach is agreed.
-- **Linux completions** (3): moderate — wmctrl availability and Wayland
+- **Linux completions** (2): moderate — wmctrl availability and Wayland
   detection logic are the subtle parts; review all fallback paths.
-- **Integration tests** (4): architecture-zone — test boundaries define what
+- **Integration tests** (3): architecture-zone — test boundaries define what
   we trust; review which layers are real vs. faked.
-- **XDG paths** (5): plumbing — review the lookup order matches the spec.
-- **TLS pinning** (6): moderate — cert loading and validation callback are
+- **XDG paths** (4): plumbing — review the lookup order matches the spec.
+- **TLS pinning** (5): moderate — cert loading and validation callback are
   the correctness-critical parts; review closely.
-- **Session layer** (7): architecture-zone if it proceeds — new agent state
+- **Session layer** (6): architecture-zone if it proceeds — new agent state
   and a new endpoint; review every line.
 
 ## Phase 4 — Release

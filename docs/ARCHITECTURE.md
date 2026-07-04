@@ -30,8 +30,10 @@ of Apollo config files needed to launch one instance.
 - **Slot start:** launch an Apollo instance from the slot's config (→ "running slot").
 - **Slot stop:** stop that slot's Apollo instance.
 
-**Audio:** Slot 0 is the only slot with audio enabled. All clone slots have
-`stream_audio = disabled` (cloning mutation rule). This is fixed for Phase 1 and 2.
+**Display:** All slots run Apollo in **headless mode** — each running instance
+creates and drives its own virtual display. No physical display on the remote is
+captured or mirrored. (`headless_mode` is inherited verbatim from the headless
+template, so every clone is headless too.)
 
 **Slot connected state:** A running slot is either **open** (awaiting a Moonlight
 client) or **connected** (has an active client). The agent derives this by
@@ -255,25 +257,6 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   Windows uses `SetWindowPos(SWP_NOSIZE)` to move the window origin to the target
   monitor; SDL then fullscreens on the correct display. Linux equivalent: `wmctrl
   -r <title> -e 0,X,Y,-1,-1` or X11 `XMoveWindow` to reposition, same principle.
-- `[RESEARCH-VDISPLAY]` **Phase 3 Slice 2** — Remote physical display management.
-  **Goal:** when a Lance session connects, the remote machine's physical displays
-  should turn off or go dark (RDP/MSTSC-like), and the host drives virtual displays
-  only. **Current state:** Slot 0 is manually configured in Apollo to *not* create
-  virtual screens — this is intentional: UAC dialogs and other Windows system UI
-  render on the physical display stack, so Slot 0 must stay physical. Clone slots
-  do create virtual displays. The result is that the remote's physical screens stay
-  active and mirror the host session. **Research questions:** Can physical displays
-  be disabled programmatically on Windows (e.g. `SetDisplayConfig`, DDC/CI, or an
-  Apollo hook) and reliably re-enabled on disconnect? Does disabling them break UAC
-  or other system UI? Is this agent-triggered (at `POST /slots/{id}/start`) or
-  Apollo-configured? Does behaviour differ across Windows 10 vs 11? What is the
-  recovery path if Lance crashes with displays left disabled? **Input blocking
-  (vague — needs scoping):** also research whether Lance should disable keyboard,
-  mouse, and trackpad on the remote while a session is active (`BlockInput` Win32
-  API or filter-driver approach). Open questions: opt-in or always-on? UAC secure
-  desktop bypass? Lockout risk if Lance crashes? Research display and input
-  management together; spec both before implementing either. Findings → document
-  here; implementation phase TBD.
 - `[DEFER-PAIR-AUTO]` **Phase 4** — Automated slot pairing. Currently each clone
   slot must be paired with Moonlight manually once before first use (each clone
   has its own `file_state` / unique UUID). Proposed automation: when cloning,
