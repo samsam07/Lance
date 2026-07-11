@@ -3,6 +3,7 @@ using Lance.Agent.Configuration;
 using Lance.Agent.Endpoints;
 using Lance.Agent.Infrastructure;
 using Lance.Agent.Services;
+using Lance.Agent.Sessions;
 using Lance.Shared.Serialization;
 using Serilog;
 using Serilog.Events;
@@ -77,6 +78,8 @@ internal static class Program
             builder.Services.AddSingleton<ISlotAllocator, SlotAllocator>();
             builder.Services.AddSingleton<IProcessTracker, ProcessTracker>();
             builder.Services.AddSingleton<ISlotLifecycle, SlotLifecycle>();
+            builder.Services.AddSingleton<ISessionRegistry, SessionRegistry>();
+            builder.Services.AddSingleton<ISessionRecordStore, FileSessionRecordStore>();
             builder.Services.AddTransient<BearerTokenMiddleware>();
             builder.Services.AddTransient<HttpBodyLoggingMiddleware>();
 
