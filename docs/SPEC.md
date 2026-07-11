@@ -40,9 +40,11 @@ public sealed record SlotDto
 `Host` is populated by the agent from its configured `listen.host`; if that value is `0.0.0.0`, `*`, or empty, the agent substitutes the machine's resolved hostname so the client always receives a usable address.
 Slot 0: always allocated; can start/stop; **never deallocated**; its config file
 is **never modified**. `Status = "Running"` is derived from a live PID;
-`Status = "Connected"` is derived from a TCP probe on the slot's base port
-(ESTABLISHED connection from a remote IP), performed by the agent at query time.
-Authoritative slot state = on-disk config files (not stored by agent).
+`Status = "Connected"` is derived from **UDP endpoint presence** at query time — the
+slot's Apollo process owns one or more of its streaming UDP ports (base `+9/+10/+11`;
+see "Sessions & orchestration → UDP detection port map"). (The former TCP-ESTABLISHED
+probe was retired — it never fired during a live stream; `[VALIDATE-UDP]`,
+2026-07-11.) Authoritative slot state = on-disk config files (not stored by agent).
 
 **Adopted non-standard slots:** a running `sunshine.exe` whose config does **not**
 match `sunshine_{id}.conf` is adopted with a **reserved int id starting at 1000**
@@ -288,11 +290,136 @@ kill/power loss leaves Apollo instances running; the next startup **adopts** the
 Error codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
 `cannot_deallocate_template`, `cannot_deallocate_adopted`, `cannot_start_adopted`,
 `template_missing`, `apollo_launch_failed`, `invalid_slot_id`,
-`max_slots_exceeded`, `io_error`, `internal_error`, `invalid_token`.
+`max_slots_exceeded`, `io_error`, `internal_error`, `invalid_token`,
+`session_id_conflict` (Phase 3 — connect handshake, requested session id already
+active; `409`).
 *(`slot_in_use` = `DELETE /slots/{id}` on a running slot; use
 `POST /slots/{id}/force-deallocate` to stop-then-deallocate instead.)*
 *(`invalid_token` = missing or wrong `Authorization: Bearer` header on a
 protected endpoint.)*
+
+## Sessions & orchestration (Phase 3)
+
+> Verified/decided values for the session/event/hook subsystem. Behavior lives in
+> ARCHITECTURE ("Sessions & tool orchestration"); design rationale in
+> `docs/TOOL_ORCHESTRATION_SPEC.md`. Values marked **(proposed)** are new surface
+> introduced during Slice 0 doc reconciliation and await owner sign-off.
+
+**Session id.** Client-minted default `Guid.NewGuid().ToString("N")` (32 lowercase
+hex) **(proposed)**; override via `--session-id <string>` (any non-empty string).
+Sent on the connect handshake. Agent enforces **global uniqueness across active
+sessions**; collision → refuse with `409 session_id_conflict`, client surfaces and
+stops (no retry).
+
+**Session states:** `Provisioned` | `Connected` | `Ended` (see ARCHITECTURE for
+transitions). **Provision grace window default 30s (proposed configurable).**
+
+**`source` values** (carried in the event payload):
+`explicit | pid_watch | probe_watch | ping | reconcile | provision_timeout`.
+
+**Event payload — injected as environment variables** into every spawned hook
+process; the same set backs `${VAR}` substitution in hook `args[]`:
+
+| Var | Scope |
+|---|---|
+| `LANCE_EVENT` | always |
+| `LANCE_EVENT_SOURCE` | always |
+| `LANCE_SESSION_ID` | always |
+| `LANCE_SIDE` | always (`agent` / `client`) |
+| `LANCE_AGENT_IP` | always |
+| `LANCE_CLIENT_IP` | always |
+| `LANCE_SLOT_IDS` | session-tier (e.g. `1,3`) |
+| `LANCE_SLOT_ID` | slot-tier only |
+
+At replay, `LANCE_EVENT` / `LANCE_EVENT_SOURCE` are set **fresh**
+(`session_ended` / `reconcile`), never restored from the snapshot.
+
+### Hook file format (JSON)
+
+```json
+{
+  "name": "vox",
+  "events": {
+    "session_started": {
+      "priority": 1000,
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["backup", "audio-config"], "onError": "terminate" },
+        { "command": "audiohelper.exe", "args": ["switch", "audio", "--playback", "VB Cable A", "--capture", "VB Cable B"] },
+        { "command": "audiohelper.exe", "args": ["launch-vox", "--peer", "${LANCE_CLIENT_IP}"] }
+      ]
+    },
+    "session_ended": {
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["kill-vox"] },
+        { "command": "audiohelper.exe", "args": ["restore", "audio-config"] }
+      ]
+    }
+  }
+}
+```
+
+| Field | Level | Default | Meaning |
+|---|---|---|---|
+| `name` | file | — | Descriptive only, non-unique, for logging. Optional. |
+| `priority` | event | 1000 | Orders **files** bound to the same event. Lower runs first. Ties → file load order. Within a file, `commands` run in array order. |
+| `command` | command | — | Executable. `command` + `args[]` → `ProcessStartInfo.ArgumentList`. No shell. |
+| `args` | command | `[]` | Argument array; supports `${VAR}` substitution (resolved by Lance before spawn). |
+| `async` | command | `false` | `false` = wait for exit before next command; `true` = spawn and don't wait. |
+| `onError` | command | `terminate` | `terminate` = stop the chain on nonzero exit; `continue` = log and proceed. Meaningless for `async: true`. |
+| `timeoutSeconds` | command | 30 | Applies only to `async: false`. On timeout: log, then apply `onError`. |
+| `workingDir` | command | dir containing the hook file | Working directory for the spawn. |
+
+### Session record (crash recovery)
+
+- **Path:** `%ProgramData%\Lance\sessions\<id>.json` (Windows). Linux path
+  `[DEFER-PATHS]`. Written **atomically** (temp + rename).
+- **Contents:** session id, client IP, slot ids, the **resolved teardown command
+  list**, and the **env payload snapshot**.
+- **Lifecycle:** persist BEFORE `session_started` hooks; delete AFTER
+  `session_ended` hooks complete. Present-at-startup ⇒ teardown never ran.
+
+### UDP detection port map (validated 2026-07-11)
+
+Streaming endpoints are UDP, derived from the slot's base `port` (the `port` config
+value). Apollo's fixed offsets, confirmed against a live stream:
+
+| Stream | Offset | Example (base 47989) |
+|---|---|---|
+| Video | base + 9 | 47998 |
+| Control | base + 10 | 47999 |
+| Audio | base + 11 | 48000 |
+
+A slot is `Connected` when its Apollo process owns **any** of these. The offsets live
+in the host-adapter seam (`IStreamingPortMap` / `ApolloStreamingPortMap`), swappable
+per host. Detection is Windows-only for now (`GetExtendedUdpTable`); Linux endpoint
+enumeration is deferred (`[VERIFY-APOLLO]`).
+
+### New endpoints
+
+- **`POST /sessions`** (connect handshake, decided) — allocate + vet `session_id` +
+  persist record + run agent `session_started` hooks + respond go with the allocated
+  slot set. `POST /slots` stays allocation-only and creates no session. Collision →
+  `409 session_id_conflict`. Request/response body finalized at Slice 6.4.
+- **`DELETE /sessions/{id}`** — clean-disconnect ping. Fast-path only (probe-watch
+  backstops it). Idempotent; unknown id → `200`.
+
+### New CLI surface
+
+- `lance connect [--monitors <list>] [--options "<flags>"] [--session-id <id>] [--hook <path> …]`
+  — now a **foreground daemon** (blocks until the session ends). `--hook` is
+  repeatable and additive over the client config `hooks` list.
+- `lance disconnect [--session-id <id>] [--keep-running] [--purge] [<host:port> …]`
+  — session-based; kill Moonlights (agent fast-path to resolve the session's slots,
+  or explicit `host:port` fallback when the agent is unreachable). `--keep-running`
+  (default) leaves Apollo running; `--purge` stops+deallocates the session's slots
+  (Slot 0 excluded, wins over `--keep-running` with a warning). No id → all sessions.
+
+### New config surface **(proposed)**
+
+- **Client `lance.json`:** `hooks: [{ "active": true, "path": "…" }]`.
+- **Agent `lance-agent.json`:** `hooks: [{ "active": true, "path": "…" }]`, and a
+  `sessions: { "provisionGraceSeconds": 30, "probePollSeconds": 1, "recordDir": "…" }`
+  block (defaults shown; `recordDir` defaults to `%ProgramData%\Lance\sessions`).
 
 ## Build / project setup
 

@@ -147,6 +147,26 @@ public sealed class SlotManager : ISlotManager
   var predicate = Expression.Lambda<Func<Slot, bool>>(body, param); // (Slot p) => p.Port == 48989
   ```
 
+## Logging messages
+
+Log messages are read by **people** — an operator tailing a service, a user
+diagnosing a failure — not only by developers grepping source. Write every message
+so a reader who has never seen the code's internals understands it at a glance.
+
+- **No internal jargon.** Never emit source identifiers (`retryCount`, `userRepo`),
+  issue/TODO markers (`[TODO-123]`, `[REVIEW-ME]`), or mechanism names that only mean
+  something in the code (an internal poller's class name, a private queue). Those
+  belong in code comments, never in the emitted text.
+- **Describe the real event, plainly.** Prefer "Order 4821: payment succeeded" over
+  "row updated in txns". Include concrete detail (ids, counts, values) when it helps
+  the reader act, worded as a sentence.
+- **Product vocabulary is fine.** Terms the user already meets in the UI and docs are
+  clear and expected. The line to hold is user-facing concept (allowed) vs. internal
+  implementation term (not).
+- Structured-logging property names stay PascalCase (`{OrderId}`) — that is the
+  property key, not the sentence; the rendered message must still read cleanly.
+- A message a reader can't understand or act on is a defect, same as a wrong value.
+
 ## File organization
 
 Mechanical rules (file-scoped namespaces, `using` sorting, alias placement) are

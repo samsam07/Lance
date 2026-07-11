@@ -211,9 +211,13 @@ without changing the deployment model.
 - Client config XDG compliance (`[DEFER-PATHS]`).
 - `[VERIFY-APOLLO]` — Apollo Linux privilege model; gate Linux agent work on this.
 - TLS cert pinning / PEM support on the client (`[DEFER-TLS-PINNING]`).
-- Session layer — `POST /sessions`, monitor↔slot mapping, state persistence
-  (`[SESSION-TBD]`). Retained as a slice; drop it if daily use proves the
-  client-driven model sufficient.
+- **Sessions & tool orchestration subsystem** — the session/event/hook layer that
+  lets sidecar tools (`vox`, `clipline`, keystroke relay) run with coordinated
+  setup/teardown on both machines. Design locked in `docs/TOOL_ORCHESTRATION_SPEC.md`,
+  integrated into ARCHITECTURE ("Sessions & tool orchestration") + SPEC ("Sessions
+  & orchestration"). This is the **major body of Phase 3** and supersedes the earlier
+  *tentative* session-layer sketch (which was monitor↔slot mapping only). Broken into
+  its own multi-slice track — see Slice 6.
 - Pure Wayland/XWayland support for `lance monitors`.
 
 **Out of scope (deferred)**
@@ -227,7 +231,14 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 
 1. **Daily-use fixes and polish.**
    Issues surfaced during personal daily use.
-   - *(Items added as discovered.)*
+   - **Log clarity pass (agent + client).** Agent logs are hard to follow — Lance's
+     meaningful lines are buried under framework/HTTP request noise; quiet the noisy
+     categories and make the domain events read as a clear narrative. Client output
+     over-relies on decorative table framing (a gimmick where a plain line reads
+     clearer); prefer meaningful, clean messages and reserve tables for data that is
+     genuinely tabular. Goal: both sides show what happened, clearly, with no
+     clutter. Follows the CONVENTIONS "Logging messages" rule.
+   - *(Further items added as discovered.)*
 
 2. **Linux client completions.**
    - `[DEFER-LINUX-WINDETECT]` — Window title detection for Moonlight instance
@@ -267,14 +278,46 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
    unchanged (accept all — suitable for trusted networks). Agent side: no
    change needed; this is client-only.
 
-6. **Session layer (`[SESSION-TBD]`).** *(Tentative — drop if the
-   client-driven model proves sufficient in daily use.)*
-   Add a lightweight session concept: the agent tracks which monitor maps to
-   which slot for the duration of a connect/disconnect cycle, persisting the
-   mapping in a small state file. Enables `lance status` to show monitor IDs
-   alongside slot IDs without the client re-deriving the mapping, and enables
-   crash recovery (reconnect restores the prior mapping). Scope and shape TBD
-   once daily use reveals whether the gap is real.
+6. **Sessions & tool orchestration subsystem.** *(Architecture-zone — the major
+   Phase-3 body. Its own multi-slice track, each with a review gate. Sub-slices
+   run in order; 6.1 gates everything that relies on liveness detection.)*
+   Behavior in ARCHITECTURE "Sessions & tool orchestration"; values in SPEC
+   "Sessions & orchestration". Sub-slices:
+
+   - **6.0 — Docs reconciliation** *(this slice, docs only — ✓ pending review).*
+     Integrate the spec, resolve/flag conflicts (`[VALIDATE-UDP]`,
+     `[SESSION-ENDPOINT]`, disconnect reconciliation), produce this breakdown.
+   - **6.1 — `[VALIDATE-UDP]` detection probe + logging.** ✓ **Done (2026-07-11).**
+     UDP endpoint-presence probe (owning PID + resolved ports; base+offset map in a
+     host-adapter seam) + transition logging, validated against a live stream.
+     Offsets confirmed base `+9/+10/+11`; connect ~1s, ungraceful teardown ~6–7s. The
+     TCP `Connected` probe was retired — `SlotDto.Status` now derives from UDP
+     presence. Key finding: Lance's kill-based `disconnect` is ungraceful, so the
+     clean-disconnect ping (6.7) is the only fast disconnect path.
+   - **6.2 — Agent: session model + record persistence.** State machine
+     `Provisioned→Connected→Ended`; atomic session record (temp+rename) at
+     `%ProgramData%\Lance\sessions\<id>.json`; persist-before-setup /
+     delete-after-teardown invariant. Hooks stubbed.
+   - **6.3 — Hook engine (shared).** JSON discovery/parse, `${VAR}` substitution,
+     `ArgumentList` spawn (no shell), `async`/`onError`/`timeoutSeconds`/`workingDir`,
+     priority + array ordering, env-payload injection. Pure library, unit-testable.
+     *(Decide: `Lance.Shared` vs. a new `Lance.Hooks` project.)*
+   - **6.4 — Agent: connect handshake + `session_started` + detection loop.** Vet
+     `session_id` (collision → refuse), allocate, persist, run agent hooks, respond
+     go; background watch fires `provision_timeout` / `probe_watch` → `session_ended`.
+     Implement the new `POST /sessions` endpoint (`[SESSION-ENDPOINT]` resolved).
+   - **6.5 — Agent: crash recovery / reconciliation.** On startup, before the
+     listener opens: probe surviving records; connected → re-adopt, idle → replay
+     snapshotted teardown, delete record.
+   - **6.6 — Client: foreground daemon connect.** Blocking; Job Object (Win) /
+     tree-kill (Linux); degraded-launch policy; SIGHUP/Ctrl-C teardown;
+     `session_started`/`session_ended` client hooks.
+   - **6.7 — Client: disconnect + clean-disconnect ping.** Session-based
+     (`--session-id`, agent fast-path + `host:port` fallback); `--keep-running`
+     (default) / `--purge`; `DELETE /sessions/{id}`.
+   - **6.8 — Reference `vox` hooks + end-to-end validation.** Ship sample agent +
+     client hooks, run the full flow, verify crash-recovery replay by killing the
+     agent mid-session.
 
 ### Review-depth guide (Phase 3)
 - **Daily-use fixes** (1): varies per issue — investigate before coding;
@@ -286,8 +329,10 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 - **XDG paths** (4): plumbing — review the lookup order matches the spec.
 - **TLS pinning** (5): moderate — cert loading and validation callback are
   the correctness-critical parts; review closely.
-- **Session layer** (6): architecture-zone if it proceeds — new agent state
-  and a new endpoint; review every line.
+- **Sessions & tool orchestration** (6): architecture-zone throughout — new agent
+  state, detection, crash recovery, a foreground client daemon, and cross-machine
+  coordination. Review every sub-slice at its own gate; 6.1's empirical validation
+  must land before the detection-dependent sub-slices are trusted.
 
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*

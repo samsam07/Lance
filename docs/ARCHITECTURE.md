@@ -36,11 +36,22 @@ captured or mirrored. (`headless_mode` is inherited verbatim from the headless
 template, so every clone is headless too.)
 
 **Slot connected state:** A running slot is either **open** (awaiting a Moonlight
-client) or **connected** (has an active client). The agent derives this by
-TCP-probing the slot's base port for any ESTABLISHED connection at query time.
-No IP filtering is applied — a Moonlight client on the same machine connects via
-loopback and is correctly detected. `SlotDto.Status` = `"Allocated"` | `"Running"`
-| `"Connected"`. `[RESEARCH-1]` resolved.
+client) or **connected** (has an active client). The agent derives this at query
+time from **UDP endpoint presence**: a slot is `Connected` when its Apollo process
+owns any of its streaming UDP ports (base port + fixed offsets — see "Sessions &
+tool orchestration → detection"). `SlotDto.Status` = `"Allocated"` | `"Running"` |
+`"Connected"`.
+
+> **`[VALIDATE-UDP]` resolved (2026-07-11).** Validated against a live Apollo +
+> Moonlight stream by reading Lance's own logs. Confirmed: (1) the stream's UDP
+> ports are `base+9 / +10 / +11` (video/control/audio), owned by the Apollo process
+> itself (no child process); (2) connect is detected within one ~1s poll of the
+> stream actually starting; (3) an ungraceful teardown — which includes Lance's own
+> `disconnect` (it kills Moonlight, sending no stream-teardown) *and* a hard NIC-cut
+> — is detected ~6–7s later (Apollo's client-timeout). **The earlier TCP-ESTABLISHED
+> probe was retired:** during a live stream Apollo's TCP base port stays in `Listen`,
+> so that probe reported `Running` the whole time and never once reported
+> `Connected`. UDP endpoint presence is now the sole mechanism.
 
 ## Lance Agent
 
@@ -121,6 +132,14 @@ no port math; the agent supplies every Apollo host:port.
 
 ### connect (Phase 2+ shape)
 
+> **Phase 3 supersedes the exit-and-done shape below.** With sessions, `lance
+> connect` becomes a **foreground daemon** that blocks until the session ends
+> (mint/accept `--session-id`, session handshake, launch Moonlights as owned
+> children, raise `session_started`, then block watching them). The slot
+> resolution and per-monitor launch mechanics here are unchanged and reused; what
+> changes is that connect no longer returns after launching. See "Sessions & tool
+> orchestration" below for the full daemon behavior.
+
 Precondition: Moonlight executable exists; client can reach the agent.
 
 1. **Resolve target monitors → ordered list (count N).** An invalid (out-of-range)
@@ -167,6 +186,16 @@ correct physical monitor; failed slots are logged and absent. The setup may be p
 > `[DEFER-LINUX-WINPOS]` — Linux deferred to Phase 3.
 
 ### disconnect (Phase 2+)
+
+> **Phase 3 reshapes this around sessions.** `lance disconnect [--session-id X]`
+> becomes the primary form: kill the session's Moonlights (the blocking `lance
+> connect` daemon then reacts to its children dying and runs `session_ended`), with
+> the agent as the fast path for resolving the session's slots and a `host:port`
+> CLI fallback when the agent is unreachable. **The `--keep-running` / `--purge`
+> flags are retained on top of the session model** (owner decision): default leaves
+> Apollo running for fast reconnect; `--purge` additionally stops+deallocates the
+> session's slots (Slot 0 excluded). The per-slot best-effort mechanics below are
+> reused. See "Sessions & tool orchestration" below.
 
 Target: all `Running`/`Connected` slots, or only those in `--slots <list>` if specified.
 
@@ -234,9 +263,225 @@ per-slot or that slot is skipped with a warning.
 N is supplied by the user via `--count <N>` (Phase-1 temporary flag). Phase 2
 replaces this with `--monitors <list>` — see SPEC for the full note.
 
+## Sessions & tool orchestration (Phase 3)
+
+> Behavior source of truth for the session/event/hook subsystem. Concrete values
+> (state names, `source` enum, env-var names, grace window, hook JSON schema,
+> record path, endpoints) live in SPEC. The original design rationale lives in
+> `docs/TOOL_ORCHESTRATION_SPEC.md`, now integrated here. This subsystem is the
+> major body of Phase 3 (see PLAN Slice 6); it supersedes the earlier *tentative*
+> session-layer sketch.
+
+**Why.** Sidecar tools (`vox` mic backchannel, future `clipline`, keystroke relay)
+fill gaps vanilla Apollo/Moonlight leave. Running them needs coordinated setup on
+connect and teardown on disconnect, on **both** machines. Lance owns this
+orchestration; Apollo becomes a managed backend, not the orchestrator. Lance
+delivers **events**; **tools own their own process lifecycle**. Lance's sole
+guarantee is that `session_ended` is eventually dispatched on each side.
+
+**No cross-machine event bus.** Events are raised *locally* on the side that
+detects them; each side runs its own hooks from its own config. Nothing about an
+event propagates over the wire. The wire carries only coordination (connect
+handshake + optional clean-disconnect ping). This is a per-side **event
+dispatcher** (raise → match hooks → execute), not a shared bus.
+
+### Session
+
+A **session** is one `lance connect` invocation, scoped to one client machine,
+grouping the slots that invocation acquired. Sessions are the unit hooks bind to.
+
+- A session begins **only** at `lance connect`. `lance allocate` / `lance start`
+  provision slots and Apollo instances but create **no session** and raise **no
+  events**. Slot occupancy and sessions are independent on the agent.
+- A second concurrent `lance connect` on the same machine is a **separate
+  session** (new id, own slots, own lifecycle), not a join.
+- Multi-monitor (`--monitors 1,3`): one slot per monitor, all in the one session.
+  Session-tier events fire **once**; per-slot events (if any) fire per slot.
+
+**Session id.** Client-minted, or overridden via `--session-id`; sent on the
+connect handshake. The agent vets it for **global uniqueness across all active
+sessions** — a collision **refuses the connection** (client surfaces the error and
+stops, no silent retry). Free id → agent reserves it, allocates, proceeds.
+
+**Agent-side state machine** (`Provisioned → Connected → Ended`):
+- `Provisioned` — slots allocated, no stream yet (enters on successful handshake +
+  allocation).
+- `Connected` — ≥1 slot's stream is live (enters when the first slot is detected
+  connected — see detection).
+- `Ended` — teardown ran, record deleted (enters on any `session_ended` source).
+- **Provision grace window (default 30s):** a `Provisioned` session with no slot
+  connected within the window → `session_ended(source=provision_timeout)`. This
+  distinguishes "not yet connected" from "was connected, now gone" — both
+  otherwise look like "all slots idle."
+- **Slots are freed only at `session_ended`.** Held through degraded operation; no
+  mid-session slot release (freeing mid-session risks another client grabbing them
+  while this one is degraded-but-alive).
+
+### Events
+
+Four events, raised **locally per side**, never propagated. Naming
+`<subject>_<past-verb>`.
+
+| Event | Tier | Raised by |
+|---|---|---|
+| `session_started` | session | client (after launching Moonlights); agent (after allocation, before responding go) |
+| `session_ended` | session | client (last Moonlight gone / Ctrl-C / SIGHUP); agent (probe-watch, ping, reconcile, or provision_timeout) |
+| `slot_connected` | slot | agent only |
+| `slot_disconnected` | slot | agent only |
+
+- **Slot-tier is agent-only in v1**, and has no consumer yet — client hooks bind
+  session-tier only. (The client still watches each Moonlight *process* internally
+  to know when the last one dies; it does not know when a *stream* established —
+  only the agent's probe does.)
+- Both sides reach `session_ended` **independently** from their own signals;
+  neither waits for the other. This is what lets the agent restore host state when
+  the client machine is dead and unreachable.
+- The event payload is injected as environment variables into every spawned hook
+  process, and the same set backs `${VAR}` substitution in hook `args[]` (see
+  SPEC for the variable list and the `source` enum).
+
+### Client daemon
+
+`lance connect` runs in the **foreground, blocking until the session ends**. There
+is no `--detached` flag.
+
+- **Signal handling:** trap `SIGHUP` / console-close and run graceful teardown
+  (tree-kill children, run `session_ended` hooks) before exit. Load-bearing —
+  foreground-only means terminal close is a normal exit path.
+- **Process ownership:** Moonlights are launched as children.
+  - **Windows:** placed in a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
+    → daemon dies for any reason → OS kills all Moonlights. Hook-spawned processes
+    also stay in the job (no breakaway) and die with it; acceptable because
+    client-side tools do no host-state changes to restore.
+  - **Linux:** no Job Object. Graceful exit uses `Process.Kill(entireProcessTree:
+    true)` (also used on Windows for clean exits). Hard daemon death (SIGKILL,
+    power loss) **orphans** Moonlights; self-heals when the user kills the stray
+    stream (agent then detects teardown). No client-side reaper, no systemd
+    dependency in v1.
+- **Degraded launch** (`--monitors 1,3` launches multiple Moonlights):
+  - ≥1 launched → **proceed degraded**: log the failure, keep live streams, raise
+    `session_started`, run hooks.
+  - 0 launched → **fail**: send the clean-disconnect ping, run **no** client hooks,
+    exit nonzero.
+  - Slots allocated but never connected are **held until `session_ended`**.
+- **Disconnect** is a separate, process-level invocation. There is **no IPC** to
+  the blocking `lance connect`; disconnect kills the Moonlights and the daemon
+  reacts to its children dying (raises `session_ended`, runs hooks, exits).
+  Pre-teardown hooks (running while the stream is still up) are **unsupported in
+  v1** (future). `--keep-running` / `--purge` are honored as above.
+  - `--session-id X`: ask the agent for that session's slots, match Moonlights by
+    those slots' `host:port` on the local process list, kill them.
+  - **Fallback (agent unreachable):** kill by explicit `host:port` CLI args. Agent
+    is the fast path; CLI args the degraded path.
+  - no id: kill all sessions' Moonlights.
+
+### Detection (agent-side)
+
+The agent must detect teardown **independently of the client** — a crashed client
+sends nothing. **Probe-watch is authoritative; the clean-disconnect ping is a
+latency optimization on top.**
+
+- **Liveness signal — UDP endpoint presence** (`[VALIDATE-UDP]`, see the slot
+  connected-state note above and Slice 1): a slot is **connected iff its Apollo
+  process currently owns UDP endpoints at that slot's streaming ports.**
+- **Port resolution per slot:** (1) ports explicitly present in the cloned config
+  win (handles manual edits); (2) absent ports are computed from the slot's base
+  port via Apollo's fixed base+offset map; (3) the map lives in the **host-adapter
+  seam** — one table, swappable for Sunshine or another host; the probe logic
+  stays host-agnostic. The probe scopes by **owning PID AND resolved ports**, so
+  slots don't read each other's endpoints and unrelated processes are excluded.
+- **Measured latency** (validated 2026-07-11 against live Apollo; observed, not
+  contractual): a client **connect** is detected within one ~1s poll of the stream
+  starting. **Disconnect is ~6–7s whenever the teardown is ungraceful** — which
+  includes both a hard NIC-cut *and* Lance's own `disconnect`, since it kills
+  Moonlight and no stream-teardown reaches Apollo; Apollo waits its client-timeout
+  before releasing the UDP ports. A truly graceful Moonlight stream-quit would be
+  ~1s. **Consequence: the clean-disconnect ping is the only fast disconnect path for
+  Lance** — probe-watch (~6–7s) is the crash backstop, not the common-case fast path.
+- **Validation requirement:** Lance must detect UDP endpoint presence itself and
+  **log probe state transitions** (connected/disconnected, timestamps, source).
+  Validation = reading Lance's logs during connect/disconnect and a hard-cut test,
+  **not** manual `Get-NetUDPEndpoint`/netstat. Confirm logged detection matches the
+  ~1s / ~6–7s behavior before relying on probe-watch in production.
+- **States drive detection:** `Provisioned` with no endpoints within the grace
+  window → `session_ended(provision_timeout)`; `Connected` with all slots'
+  endpoints gone → `session_ended(probe_watch)`.
+
+### Hooks
+
+- **Discovery.** Client: `--hook <path>` (repeatable, additive) plus a client
+  config `hooks: [{ active, path }]` array (`--hook` overrides/adds on top). Agent:
+  `lance-agent.json` `hooks: [{ active, path }]`.
+- **Format:** JSON (see SPEC for the schema + field defaults). `command` + `args[]`
+  are passed directly to `ProcessStartInfo.ArgumentList` — **no shell**, no string
+  parsing, no quoting hazards. `${VAR}` in `args[]` is resolved by Lance before
+  spawn (there is no shell to expand it).
+- **Ordering:** `priority` orders **files** bound to the same event (lower first;
+  ties → load order); within a file, `commands` run in array order.
+- **Process lifecycle is the tool's, not Lance's** (explicit non-goal). Lance never
+  supervises hook-spawned processes; its only relationship to a spawned process is
+  optionally waiting for its exit to sequence subsequent commands. Consequences: a
+  tool whose teardown must kill a process must make it **findable** (write a
+  pidfile at launch, or use a wrapper that tracks the PID). A **wrapper** (e.g.
+  `audiohelper`) is a setup/teardown verb-bundle (ordered setup, records the PID,
+  reverses on teardown); it is not required to be resident and does not watch
+  Lance's liveness (crash teardown is handled by reconciliation).
+
+### Crash recovery (agent-side)
+
+Covers **lance-agent crashing mid-session** while host state is modified (audio
+switched, `vox` running). Apollo survives an agent crash by design, so the agent
+on restart must finish any teardown that never ran. Client-side crash recovery is
+**out of scope for v1** (client residue is a stray process with no host-state
+change; severity low).
+
+- **Record lifecycle:** persist the session record **BEFORE** running
+  `session_started` hooks; **delete** it **AFTER** `session_ended` hooks complete.
+  Invariant: **a record present at agent startup means teardown never ran.** The
+  record holds the **resolved teardown command list** and the **env payload
+  snapshot** (see SPEC for path + contents; written atomically temp+rename).
+- **On startup (reconciliation), before accepting any new connections:** for each
+  surviving record, probe its slots — any slot connected → session alive, re-adopt,
+  do **not** replay; all idle → orphan, raise `session_ended(reconcile)`, run the
+  **snapshotted** teardown commands, delete the record. Reconciliation **must
+  complete before the listener opens**, else a fresh connect could switch audio and
+  then be clobbered by a replayed `restore`.
+- **Rules:** snapshot commands+env, **never re-read the hook file at replay** (it
+  may have changed; `LANCE_CLIENT_IP` can't be recomputed once the client is gone).
+  At replay, `LANCE_EVENT` / `LANCE_EVENT_SOURCE` are set **fresh**
+  (`session_ended` / `reconcile`) so a hook can tell a replayed teardown from a
+  live one. **Teardown commands must be idempotent** (author requirement) — this is
+  what makes a mid-chain `terminate` abort safe to clean up later. The agent
+  **never job-kills Apollo** (Apollo must survive an agent crash — the premise of
+  this section; only the client jobs its Moonlights). Only `session_ended` is
+  replayed; slot-tier hooks are never replayed.
+- **Accepted gap:** if the agent crashes and **never restarts**, host state stays
+  modified. The Windows service auto-restart (Phase 4) makes this rare; no
+  watchdog-of-watchdog in v1.
+
+### Wire protocol
+
+Existing REST/HTTPS (self-signed, bearer token), extended. **No persistent
+connection anywhere** — the "maintain an active connection for the session" goal is
+dropped; unnecessary given local event dispatch + probe-based detection.
+
+- **Connect handshake** (client → agent): a **new `POST /sessions` endpoint**
+  (decided) — allocate slots, vet the id (global uniqueness; collision → refuse),
+  **persist the record**, run agent `session_started` hooks, respond go with the
+  allocated slot set. `POST /slots` stays allocation-only and **never creates a
+  session**; the two are independent (§2). Request/response body finalized at Slice
+  6.4.
+- **Clean-disconnect ping** (client → agent): `DELETE /sessions/{id}` shape.
+  Fast-path only, not required for correctness (probe-watch backstops it).
+- **Sequencing:** the agent's `session_started` hooks complete before the client's;
+  the agent's `session_ended` hooks may run after the client's. This ordering is
+  inherent to who detects what; no cross-machine barrier exists or is needed.
+
 ## Notes / open items
-- `[RESEARCH-1]` **Resolved.** TCP probe on the slot's base port (ESTABLISHED from
-  a remote IP) is the detection mechanism. Agent probes at query time.
+- `[RESEARCH-1]` **Superseded by `[VALIDATE-UDP]` (2026-07-11).** The original TCP
+  ESTABLISHED probe never fires during a live stream (TCP base port stays in
+  `Listen`); connection detection is now **UDP endpoint presence**, and the TCP probe
+  was retired.
 - `[DEFER-1]` **Closed.** Moot without sessions — slot 0 is the audio slot; no
   multi-session conflict is possible.
 - `[INVESTIGATE-STOP]` **Resolved (Phase 2 Slice 1).** `CloseMainWindow()` returns
@@ -268,6 +513,18 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
   Apollo's `/pair` handler short-circuits (returns success) when the client cert
   is already present, rather than unconditionally triggering the full PIN flow
   for any new UUID.
+- `[VALIDATE-UDP]` **Resolved (Slice 6.1, 2026-07-11).** Validated against a live
+  stream. Streaming UDP ports = base `+9/+10/+11` (video/control/audio) on the Apollo
+  process itself. Connect detected within ~1s of stream start; ungraceful teardown
+  (hard cut *and* Lance's kill-based `disconnect`) detected ~6–7s. The TCP
+  ESTABLISHED probe never reported `Connected` and was **retired** — UDP endpoint
+  presence is the sole detector. Offsets recorded in SPEC.
+- `[SESSION-ENDPOINT]` **Resolved (owner, 2026-07-11).** Connect handshake is a
+  **new `POST /sessions`** endpoint; `POST /slots` stays allocation-only and never
+  creates a session. Request/response body finalized at Slice 6.4.
+- `[VERIFY-MUTEX]` — named-mutex cross-process semantics on Linux unverified. May
+  intersect the foreground-daemon model (single-instance / session-id uniqueness);
+  resolve before the client daemon slice if it does.
 - **Auth (Phase 2):** agent optionally enforces a static bearer token. If
   `auth.token` is set in `lance-agent.json`, all non-`/health` requests must
   carry `Authorization: Bearer <token>`. If absent, the API is open. Client
