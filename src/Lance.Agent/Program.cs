@@ -71,13 +71,18 @@ internal static class Program
                 opts.SerializerOptions.TypeInfoResolverChain.Insert(0, LanceSharedJsonContext.Default));
 
             builder.Services.AddSingleton(config);
-            builder.Services.AddSingleton<ITcpProbe, TcpProbe>();
+            builder.Services.AddSingleton<IUdpEndpointProbe, UdpEndpointProbe>();
+            builder.Services.AddSingleton<IStreamingPortMap, ApolloStreamingPortMap>();
             builder.Services.AddSingleton<ISlotScanner, SlotScanner>();
             builder.Services.AddSingleton<ISlotAllocator, SlotAllocator>();
             builder.Services.AddSingleton<IProcessTracker, ProcessTracker>();
             builder.Services.AddSingleton<ISlotLifecycle, SlotLifecycle>();
             builder.Services.AddTransient<BearerTokenMiddleware>();
             builder.Services.AddTransient<HttpBodyLoggingMiddleware>();
+
+            // [VALIDATE-UDP] (Slice 6.1) — diagnostic probe-watch; logs UDP-derived
+            // slot connect/disconnect transitions. Not yet wired to session state.
+            builder.Services.AddHostedService<UdpProbeWatchService>();
 
             WebApplication app = builder.Build();
 

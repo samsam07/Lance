@@ -9,7 +9,18 @@ public sealed record AgentConfig
     public AuthConfig? Auth { get; init; }
     public RemoteServerConfig RemoteServer { get; init; } = new();
     public SlotsConfig Slots { get; init; } = new();
+    public SessionsConfig Sessions { get; init; } = new();
     public AgentLoggingConfig Logging { get; init; } = new();
+}
+
+public sealed record SessionsConfig
+{
+    public int ProvisionGraceSeconds { get; init; } = 30;
+    public int ProbePollSeconds { get; init; } = 1;
+
+    public string RecordDir { get; init; } = OperatingSystem.IsWindows()
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Lance", "sessions")
+        : string.Empty; // [DEFER-PATHS] Linux path TBD
 }
 
 public sealed record ListenConfig

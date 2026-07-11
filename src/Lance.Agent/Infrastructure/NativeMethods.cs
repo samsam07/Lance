@@ -5,11 +5,73 @@ namespace Lance.Agent.Infrastructure;
 
 internal static class NativeMethods
 {
+    private const int AddressFamilyInet = 2;      // AF_INET
+    private const int AddressFamilyInet6 = 23;    // AF_INET6
+    private const int UdpTableOwnerPid = 1;       // UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID
+
     internal const int Sigterm = 15;
 
     internal static int Kill(int pid, int signal)
     {
         return kill(pid, signal);
+    }
+
+    // Windows: enumerate all UDP endpoints with their owning PID via the IP Helper
+    // API. Used by the [VALIDATE-UDP] probe to detect stream liveness (Apollo binds
+    // its UDP streaming endpoints on connect, releases them on disconnect).
+
+    internal static IReadOnlyList<(int Pid, int Port)> GetUdpEndpoints()
+    {
+        List<(int Pid, int Port)> endpoints = [];
+        if (!OperatingSystem.IsWindows())
+        {
+            return endpoints;
+        }
+
+        // MIB_UDPROW_OWNER_PID: localAddr(4) localPort(4) owningPid(4) = 12 bytes
+        CollectUdpEndpoints(AddressFamilyInet, rowSize: 12, portOffset: 4, pidOffset: 8, endpoints);
+        // MIB_UDP6ROW_OWNER_PID: localAddr(16) scopeId(4) localPort(4) owningPid(4) = 28 bytes
+        CollectUdpEndpoints(AddressFamilyInet6, rowSize: 28, portOffset: 20, pidOffset: 24, endpoints);
+
+        return endpoints;
+    }
+
+    private static void CollectUdpEndpoints(int addressFamily, int rowSize, int portOffset, int pidOffset, List<(int Pid, int Port)> endpoints)
+    {
+        int bufferSize = 0;
+        // First call sizes the buffer (returns ERROR_INSUFFICIENT_BUFFER); return value ignored.
+        GetExtendedUdpTable(IntPtr.Zero, ref bufferSize, false, addressFamily, UdpTableOwnerPid, 0);
+        if (bufferSize == 0)
+        {
+            return;
+        }
+
+        IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+        try
+        {
+            uint result = GetExtendedUdpTable(buffer, ref bufferSize, false, addressFamily, UdpTableOwnerPid, 0);
+            if (result != 0)
+            {
+                return;
+            }
+
+            // Table layout: DWORD dwNumEntries, then dwNumEntries rows starting at offset 4.
+            int entryCount = Marshal.ReadInt32(buffer);
+            IntPtr rowPtr = IntPtr.Add(buffer, 4);
+            for (int i = 0; i < entryCount; i++)
+            {
+                int rawPort = Marshal.ReadInt32(rowPtr, portOffset);
+                int owningPid = Marshal.ReadInt32(rowPtr, pidOffset);
+                // dwLocalPort holds the port in network byte order in its low two bytes.
+                int port = ((rawPort & 0x000000FF) << 8) | ((rawPort & 0x0000FF00) >> 8);
+                endpoints.Add((owningPid, port));
+                rowPtr = IntPtr.Add(rowPtr, rowSize);
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
     }
 
     [DllImport("libc")]
@@ -117,4 +179,13 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    private static extern uint GetExtendedUdpTable(
+        IntPtr pUdpTable,
+        ref int pdwSize,
+        bool bOrder,
+        int ulAf,
+        int tableClass,
+        int reserved);
 }

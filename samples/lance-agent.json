@@ -24,6 +24,11 @@
     "templateName": "Lance-Template",
     "configNamePattern": "sunshine_{id}.conf"
   },
+  "sessions": {
+    "provisionGraceSeconds": 30,
+    "probePollSeconds": 1,
+    "recordDir": "C:\\ProgramData\\Lance\\sessions"
+  },
   "logging": {
     "level": "Information",
     "filePath": "lance-agent.log",

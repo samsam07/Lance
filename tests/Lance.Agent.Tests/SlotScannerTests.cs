@@ -13,7 +13,7 @@ public sealed class SlotScannerTests
         using TempDir dir = new();
         File.WriteAllText(Path.Combine(dir.Path, "sunshine.conf"), "port = 47989\n");
 
-        SlotScanner scanner = BuildScanner(dir.Path, new ProcessTracker(), new FakeTcpProbe());
+        SlotScanner scanner = BuildScanner(dir.Path, new ProcessTracker(), new FakeUdpEndpointProbe());
 
         IReadOnlyList<SlotDto> slots = scanner.Scan();
 
@@ -30,7 +30,7 @@ public sealed class SlotScannerTests
         ProcessTracker tracker = new();
         tracker.Add(0, new SlotProcess { Pid = Environment.ProcessId, StartedAt = DateTimeOffset.UtcNow });
 
-        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeTcpProbe());
+        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeUdpEndpointProbe());
 
         IReadOnlyList<SlotDto> slots = scanner.Scan();
 
@@ -48,7 +48,8 @@ public sealed class SlotScannerTests
         ProcessTracker tracker = new();
         tracker.Add(0, new SlotProcess { Pid = Environment.ProcessId, StartedAt = DateTimeOffset.UtcNow });
 
-        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeTcpProbe(port));
+        // A client is streaming: the slot's process holds its video streaming port (base + 9).
+        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeUdpEndpointProbe(Environment.ProcessId, port + 9));
 
         IReadOnlyList<SlotDto> slots = scanner.Scan();
 
@@ -72,7 +73,7 @@ public sealed class SlotScannerTests
             ConfigPath = "/some/other.conf"
         });
 
-        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeTcpProbe());
+        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeUdpEndpointProbe());
 
         IReadOnlyList<SlotDto> slots = scanner.Scan();
 
@@ -102,7 +103,8 @@ public sealed class SlotScannerTests
             ConfigPath = "/some/other.conf"
         });
 
-        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeTcpProbe(adoptedPort));
+        // The adopted process holds its video streaming port (observed base + 9).
+        SlotScanner scanner = BuildScanner(dir.Path, tracker, new FakeUdpEndpointProbe(Environment.ProcessId, adoptedPort + 9));
 
         IReadOnlyList<SlotDto> slots = scanner.Scan();
 
@@ -115,7 +117,7 @@ public sealed class SlotScannerTests
         Assert.Equal("Connected", adopted.Status);
     }
 
-    private static SlotScanner BuildScanner(string configDir, ProcessTracker tracker, ITcpProbe probe)
+    private static SlotScanner BuildScanner(string configDir, ProcessTracker tracker, IUdpEndpointProbe udpProbe)
     {
         AgentConfig config = new()
         {
@@ -125,22 +127,27 @@ public sealed class SlotScannerTests
                 InstallDir = configDir
             }
         };
-        return new SlotScanner(config, tracker, probe);
+        return new SlotScanner(config, tracker, udpProbe, new ApolloStreamingPortMap());
     }
 }
 
-file sealed class FakeTcpProbe : ITcpProbe
+file sealed class FakeUdpEndpointProbe : IUdpEndpointProbe
 {
-    private readonly HashSet<int> _connectedPorts;
+    private readonly Dictionary<int, IReadOnlySet<int>> _byPid;
 
-    public FakeTcpProbe(params int[] connectedPorts)
+    public FakeUdpEndpointProbe()
     {
-        _connectedPorts = new HashSet<int>(connectedPorts);
+        _byPid = [];
     }
 
-    public bool HasEstablishedConnection(int port)
+    public FakeUdpEndpointProbe(int pid, params int[] ports)
     {
-        return _connectedPorts.Contains(port);
+        _byPid = new Dictionary<int, IReadOnlySet<int>> { [pid] = new HashSet<int>(ports) };
+    }
+
+    public IReadOnlyDictionary<int, IReadOnlySet<int>> SnapshotByPid()
+    {
+        return _byPid;
     }
 }
 

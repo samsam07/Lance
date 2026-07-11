@@ -9,14 +9,16 @@ internal sealed class SlotScanner : ISlotScanner
 {
     private readonly AgentConfig _config;
     private readonly IProcessTracker _tracker;
-    private readonly ITcpProbe _probe;
+    private readonly IUdpEndpointProbe _udpProbe;
+    private readonly IStreamingPortMap _portMap;
     private readonly string _resolvedHost;
 
-    public SlotScanner(AgentConfig config, IProcessTracker tracker, ITcpProbe probe)
+    public SlotScanner(AgentConfig config, IProcessTracker tracker, IUdpEndpointProbe udpProbe, IStreamingPortMap portMap)
     {
         _config = config;
         _tracker = tracker;
-        _probe = probe;
+        _udpProbe = udpProbe;
+        _portMap = portMap;
         _resolvedHost = ResolveHost(config.Listen.Host);
     }
 
@@ -29,12 +31,16 @@ internal sealed class SlotScanner : ISlotScanner
 
     public IReadOnlyList<SlotDto> Scan()
     {
+        // One snapshot of UDP endpoints per scan; a slot is "Connected" when its
+        // Apollo process holds any of its streaming ports (see IStreamingPortMap).
+        IReadOnlyDictionary<int, IReadOnlySet<int>> udpByProcess = _udpProbe.SnapshotByPid();
+
         List<SlotDto> slots = [];
 
         string templatePath = Path.Combine(_config.RemoteServer.ConfigDir, _config.RemoteServer.TemplateConfigName);
         if (File.Exists(templatePath))
         {
-            slots.Add(BuildSlot(0, templatePath, isTemplate: true));
+            slots.Add(BuildSlot(0, templatePath, isTemplate: true, udpByProcess));
         }
 
         foreach (string filePath in Directory.EnumerateFiles(_config.RemoteServer.ConfigDir))
@@ -43,7 +49,7 @@ internal sealed class SlotScanner : ISlotScanner
             if (!TryParseCloneId(fileName, out int id))
                 continue;
 
-            slots.Add(BuildSlot(id, filePath, isTemplate: false));
+            slots.Add(BuildSlot(id, filePath, isTemplate: false, udpByProcess));
         }
 
         // Non-standard adopted slots live only in the PID table (id >= 1000).
@@ -52,7 +58,7 @@ internal sealed class SlotScanner : ISlotScanner
             if (slotId < 1000) continue;
             if (!ProcessHelper.IsAlive(entry.Pid)) continue;
 
-            string adoptedStatus = _probe.HasEstablishedConnection(entry.ObservedPort) ? "Connected" : "Running";
+            string adoptedStatus = IsConnected(entry.Pid, entry.ObservedPort, udpByProcess) ? "Connected" : "Running";
             slots.Add(new SlotDto
             {
                 Id = slotId,
@@ -74,7 +80,7 @@ internal sealed class SlotScanner : ISlotScanner
         return slots;
     }
 
-    private SlotDto BuildSlot(int id, string filePath, bool isTemplate)
+    private SlotDto BuildSlot(int id, string filePath, bool isTemplate, IReadOnlyDictionary<int, IReadOnlySet<int>> udpByProcess)
     {
         Dictionary<string, string> configValues = InitializationFileReader.Read(filePath);
         int port = int.TryParse(configValues.GetValueOrDefault("port", ""), out int parsedPort)
@@ -91,7 +97,7 @@ internal sealed class SlotScanner : ISlotScanner
 
         if (_tracker.TryGet(id, out SlotProcess? entry) && ProcessHelper.IsAlive(entry!.Pid))
         {
-            status = _probe.HasEstablishedConnection(port) ? "Connected" : "Running";
+            status = IsConnected(entry.Pid, port, udpByProcess) ? "Connected" : "Running";
             processId = entry.Pid;
             startedAt = entry.StartedAt;
         }
@@ -111,6 +117,17 @@ internal sealed class SlotScanner : ISlotScanner
             StartedAt = startedAt,
             AllocatedAt = new DateTimeOffset(File.GetCreationTimeUtc(filePath), TimeSpan.Zero)
         };
+    }
+
+    private bool IsConnected(int pid, int basePort, IReadOnlyDictionary<int, IReadOnlySet<int>> udpByProcess)
+    {
+        if (!udpByProcess.TryGetValue(pid, out IReadOnlySet<int>? heldPorts))
+        {
+            return false;
+        }
+
+        StreamingUdpPorts resolved = _portMap.Resolve(basePort);
+        return resolved.ActivePorts(heldPorts).Count > 0;
     }
 
     private bool TryParseCloneId(string fileName, out int id)
