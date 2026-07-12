@@ -20,7 +20,7 @@ public sealed class HookLoaderTests
             }
             """);
 
-        HookLoader loader = new(NullLogger.Instance);
+        HookLoader loader = new(NullLogger<HookLoader>.Instance);
         IReadOnlyList<LoadedHook> loaded = loader.Load([new HookFileRef { Path = path }]);
 
         Assert.Single(loaded);
@@ -38,7 +38,7 @@ public sealed class HookLoaderTests
         string path = Path.Combine(dir.Path, "vox.json");
         File.WriteAllText(path, """{ "events": {} }""");
 
-        HookLoader loader = new(NullLogger.Instance);
+        HookLoader loader = new(NullLogger<HookLoader>.Instance);
         IReadOnlyList<LoadedHook> loaded = loader.Load([new HookFileRef { Path = path, Active = false }]);
 
         Assert.Empty(loaded);
@@ -50,7 +50,7 @@ public sealed class HookLoaderTests
         using HooksTempDir dir = new();
         string missing = Path.Combine(dir.Path, "nope.json");
 
-        HookLoader loader = new(NullLogger.Instance);
+        HookLoader loader = new(NullLogger<HookLoader>.Instance);
         IReadOnlyList<LoadedHook> loaded = loader.Load([new HookFileRef { Path = missing }]);
 
         Assert.Empty(loaded);
@@ -65,7 +65,7 @@ public sealed class HookLoaderTests
             { "events": { "session_ended": { "commands": [ { "command": "cleanup" } ] } } }
             """);
 
-        HookLoader loader = new(NullLogger.Instance);
+        HookLoader loader = new(NullLogger<HookLoader>.Instance);
         IReadOnlyList<LoadedHook> loaded = loader.Load([new HookFileRef { Path = path }]);
 
         HookEventDefinition definition = loaded[0].File.Events[LanceEvents.SessionEnded];

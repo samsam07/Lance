@@ -10,7 +10,14 @@ public sealed record AgentConfig
     public RemoteServerConfig RemoteServer { get; init; } = new();
     public SlotsConfig Slots { get; init; } = new();
     public SessionsConfig Sessions { get; init; } = new();
+    public AgentHookEntry[] Hooks { get; init; } = [];
     public AgentLoggingConfig Logging { get; init; } = new();
+}
+
+public sealed record AgentHookEntry
+{
+    public string? Path { get; init; }
+    public bool? Active { get; init; }   // nullable so an omitted "active" defaults to true (STJ drops C# defaults)
 }
 
 public sealed record SessionsConfig

@@ -27,7 +27,7 @@ internal sealed class FileSessionRecordStore : ISessionRecordStore
 
     public async Task SaveAsync(SessionRecord record, CancellationToken cancellationToken = default)
     {
-        if (!IsValidSessionId(record.SessionId))
+        if (!SessionId.IsValid(record.SessionId))
         {
             throw new ArgumentException($"Session id '{record.SessionId}' is not a valid record name.", nameof(record));
         }
@@ -66,7 +66,7 @@ internal sealed class FileSessionRecordStore : ISessionRecordStore
 
     public Task DeleteAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        if (!IsValidSessionId(sessionId))
+        if (!SessionId.IsValid(sessionId))
         {
             return Task.CompletedTask;
         }
@@ -97,26 +97,5 @@ internal sealed class FileSessionRecordStore : ISessionRecordStore
     private string PathFor(string sessionId)
     {
         return Path.Combine(_directory, sessionId + ".json");
-    }
-
-    // Session ids become file names, so constrain them to a safe character set — this
-    // also blocks path traversal via a hostile --session-id. The connect handshake
-    // (Slice 6.4) enforces the same set when vetting the id.
-    private static bool IsValidSessionId(string sessionId)
-    {
-        if (sessionId.Length is 0 or > 64)
-        {
-            return false;
-        }
-
-        foreach (char c in sessionId)
-        {
-            if (!char.IsAsciiLetterOrDigit(c) && c != '-' && c != '_')
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

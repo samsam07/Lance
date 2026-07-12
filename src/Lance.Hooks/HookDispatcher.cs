@@ -11,9 +11,9 @@ public sealed class HookDispatcher
     private const string OnErrorContinue = "continue";
 
     private readonly IHookProcessRunner _runner;
-    private readonly ILogger _logger;
+    private readonly ILogger<HookDispatcher> _logger;
 
-    public HookDispatcher(IHookProcessRunner runner, ILogger logger)
+    public HookDispatcher(IHookProcessRunner runner, ILogger<HookDispatcher> logger)
     {
         _runner = runner;
         _logger = logger;
@@ -23,7 +23,10 @@ public sealed class HookDispatcher
     {
         foreach (BoundEvent bound in Bind(eventName, hooks))
         {
-            await RunFileAsync(bound, env, cancellationToken);
+            // Each file's commands are their own chain — a terminate in one file does
+            // not stop other files (independent tools).
+            IReadOnlyList<ResolvedCommand> commands = ResolveFile(bound, env);
+            await RunSequenceAsync(commands, env, cancellationToken);
         }
     }
 
@@ -32,25 +35,28 @@ public sealed class HookDispatcher
         List<ResolvedCommand> resolved = [];
         foreach (BoundEvent bound in Bind(eventName, hooks))
         {
-            foreach (HookCommand command in bound.Definition.Commands)
-            {
-                resolved.Add(ResolveCommand(command, bound.Hook, env));
-            }
+            resolved.AddRange(ResolveFile(bound, env));
         }
 
         return resolved;
     }
 
-    private async Task RunFileAsync(BoundEvent bound, IReadOnlyDictionary<string, string> env, CancellationToken cancellationToken)
+    // Run a pre-resolved command sequence — a persisted teardown snapshot at normal
+    // session end or crash-recovery replay. Same per-command semantics as a file chain.
+    public async Task RunResolvedAsync(IReadOnlyList<ResolvedCommand> commands, IReadOnlyDictionary<string, string> env, CancellationToken cancellationToken = default)
     {
-        foreach (HookCommand command in bound.Definition.Commands)
+        await RunSequenceAsync(commands, env, cancellationToken);
+    }
+
+    private async Task RunSequenceAsync(IReadOnlyList<ResolvedCommand> commands, IReadOnlyDictionary<string, string> env, CancellationToken cancellationToken)
+    {
+        foreach (ResolvedCommand command in commands)
         {
-            ResolvedCommand resolved = ResolveCommand(command, bound.Hook, env);
             HookProcessSpec spec = new()
             {
-                Command = resolved.Command,
-                Args = resolved.Args,
-                WorkingDirectory = resolved.WorkingDir ?? bound.Hook.Directory,
+                Command = command.Command,
+                Args = command.Args,
+                WorkingDirectory = command.WorkingDir ?? ".",
                 Environment = env
             };
 
@@ -69,14 +75,12 @@ public sealed class HookDispatcher
             LogFailure(command, result);
             if (!string.Equals(command.OnError, OnErrorContinue, StringComparison.Ordinal))
             {
-                // onError=terminate: stop this file's chain. Other files bound to the
-                // same event still run — they are independent tools. [DECISION: per-file]
-                return;
+                return;   // onError=terminate: stop this sequence
             }
         }
     }
 
-    private void LogFailure(HookCommand command, HookRunResult result)
+    private void LogFailure(ResolvedCommand command, HookRunResult result)
     {
         if (result.TimedOut)
         {
@@ -86,6 +90,17 @@ public sealed class HookDispatcher
         {
             _logger.LogWarning("Hook command '{Command}' exited with code {ExitCode}.", command.Command, result.ExitCode);
         }
+    }
+
+    private static IReadOnlyList<ResolvedCommand> ResolveFile(BoundEvent bound, IReadOnlyDictionary<string, string> env)
+    {
+        List<ResolvedCommand> resolved = [];
+        foreach (HookCommand command in bound.Definition.Commands)
+        {
+            resolved.Add(ResolveCommand(command, bound.Hook, env));
+        }
+
+        return resolved;
     }
 
     private static ResolvedCommand ResolveCommand(HookCommand command, LoadedHook hook, IReadOnlyDictionary<string, string> env)

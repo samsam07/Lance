@@ -4,6 +4,7 @@ using Lance.Agent.Endpoints;
 using Lance.Agent.Infrastructure;
 using Lance.Agent.Services;
 using Lance.Agent.Sessions;
+using Lance.Hooks;
 using Lance.Shared.Serialization;
 using Serilog;
 using Serilog.Events;
@@ -80,12 +81,16 @@ internal static class Program
             builder.Services.AddSingleton<ISlotLifecycle, SlotLifecycle>();
             builder.Services.AddSingleton<ISessionRegistry, SessionRegistry>();
             builder.Services.AddSingleton<ISessionRecordStore, FileSessionRecordStore>();
+            builder.Services.AddSingleton<IHookProcessRunner, ProcessHookRunner>();
+            builder.Services.AddSingleton<HookLoader>();
+            builder.Services.AddSingleton<HookDispatcher>();
+            builder.Services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>();
             builder.Services.AddTransient<BearerTokenMiddleware>();
             builder.Services.AddTransient<HttpBodyLoggingMiddleware>();
 
-            // [VALIDATE-UDP] (Slice 6.1) — diagnostic probe-watch; logs UDP-derived
-            // slot connect/disconnect transitions. Not yet wired to session state.
-            builder.Services.AddHostedService<UdpProbeWatchService>();
+            // Drives session lifecycle from UDP-based client-connection detection:
+            // marks Connected, and ends sessions on provision-timeout / probe-watch.
+            builder.Services.AddHostedService<SessionDetectionService>();
 
             WebApplication app = builder.Build();
 
@@ -134,6 +139,7 @@ internal static class Program
 
             app.MapHealthEndpoints(startedAt);
             app.MapSlotEndpoints();
+            app.MapSessionEndpoints();
 
             await app.RunAsync();
             Log.Information("Lance agent stopped — graceful shutdown complete");

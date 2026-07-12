@@ -29,6 +29,9 @@
     "probePollSeconds": 1,
     "recordDir": "C:\\ProgramData\\Lance\\sessions"
   },
+  "hooks": [
+    { "active": false, "path": "hooks\\vox.json" }
+  ],
   "logging": {
     "level": "Information",
     "filePath": "lance-agent.log",

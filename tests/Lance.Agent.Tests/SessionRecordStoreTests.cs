@@ -117,7 +117,7 @@ public sealed class SessionRecordStoreTests
     }
 }
 
-file sealed class SessionTempDir : IDisposable
+internal sealed class SessionTempDir : IDisposable
 {
     public string Path { get; } =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lance-session-test-{Guid.NewGuid():N}");

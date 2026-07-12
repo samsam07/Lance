@@ -10,7 +10,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_RunsFilesByPriorityThenLoadOrder_CommandsInArrayOrder()
     {
         FakeHookProcessRunner runner = new();
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook later = Hook(priority: 2000, loadOrder: 0, Cmd("x", "a1"), Cmd("x", "a2"));
         LoadedHook earlier = Hook(priority: 1000, loadOrder: 1, Cmd("y", "b1"));
@@ -24,7 +24,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_EqualPriority_BreaksTieByLoadOrder()
     {
         FakeHookProcessRunner runner = new();
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook second = Hook(priority: 1000, loadOrder: 1, Cmd("y", "b1"));
         LoadedHook first = Hook(priority: 1000, loadOrder: 0, Cmd("x", "a1"));
@@ -38,7 +38,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_OnErrorTerminate_StopsRemainingCommandsInThatFile()
     {
         FakeHookProcessRunner runner = new(fail: ["x:a1"]);
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook file = Hook(1000, 0, Cmd("x", "a1"), Cmd("x", "a2"));
 
@@ -51,7 +51,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_OnErrorContinue_RunsRemainingCommands()
     {
         FakeHookProcessRunner runner = new(fail: ["x:a1"]);
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook file = Hook(1000, 0, Cmd("x", "a1", onError: "continue"), Cmd("x", "a2"));
 
@@ -64,7 +64,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_TerminateInOneFile_DoesNotStopOtherFiles()
     {
         FakeHookProcessRunner runner = new(fail: ["x:a1"]);
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook failing = Hook(1000, 0, Cmd("x", "a1"), Cmd("x", "a2"));
         LoadedHook other = Hook(1000, 1, Cmd("y", "b1"));
@@ -78,7 +78,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_AsyncCommand_IsStartedNotWaited_AndChainContinues()
     {
         FakeHookProcessRunner runner = new();
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook file = Hook(1000, 0, Cmd("x", "a1", async: true), Cmd("x", "a2"));
 
@@ -92,7 +92,7 @@ public sealed class HookDispatcherTests
     public async Task Dispatch_Timeout_IsTreatedAsFailure_AndTerminates()
     {
         FakeHookProcessRunner runner = new(timeout: ["x:a1"]);
-        HookDispatcher dispatcher = new(runner, NullLogger.Instance);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
 
         LoadedHook file = Hook(1000, 0, Cmd("x", "a1"), Cmd("x", "a2"));
 
@@ -104,7 +104,7 @@ public sealed class HookDispatcherTests
     [Fact]
     public void Resolve_SubstitutesArgs_AndResolvesWorkingDir()
     {
-        HookDispatcher dispatcher = new(new FakeHookProcessRunner(), NullLogger.Instance);
+        HookDispatcher dispatcher = new(new FakeHookProcessRunner(), NullLogger<HookDispatcher>.Instance);
 
         HookCommand command = new() { Command = "audiohelper", Args = ["launch", "--peer", "${LANCE_AGENT_IP}"] };
         LoadedHook file = new()

@@ -8,9 +8,9 @@ namespace Lance.Hooks;
 // reference list (client `--hook` + config, agent config) is each side's job.
 public sealed class HookLoader
 {
-    private readonly ILogger _logger;
+    private readonly ILogger<HookLoader> _logger;
 
-    public HookLoader(ILogger logger)
+    public HookLoader(ILogger<HookLoader> logger)
     {
         _logger = logger;
     }

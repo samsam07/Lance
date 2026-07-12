@@ -121,13 +121,7 @@ internal sealed class SlotScanner : ISlotScanner
 
     private bool IsConnected(int pid, int basePort, IReadOnlyDictionary<int, IReadOnlySet<int>> udpByProcess)
     {
-        if (!udpByProcess.TryGetValue(pid, out IReadOnlySet<int>? heldPorts))
-        {
-            return false;
-        }
-
-        StreamingUdpPorts resolved = _portMap.Resolve(basePort);
-        return resolved.ActivePorts(heldPorts).Count > 0;
+        return SlotConnectivity.IsConnected(pid, basePort, udpByProcess, _portMap);
     }
 
     private bool TryParseCloneId(string fileName, out int id)

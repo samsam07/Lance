@@ -31,6 +31,7 @@ internal static class AgentConfigLoader
             RemoteServer = raw.RemoteServer ?? new RemoteServerConfig(),
             Slots        = raw.Slots        ?? new SlotsConfig(),
             Sessions     = raw.Sessions     ?? new SessionsConfig(),
+            Hooks        = raw.Hooks        ?? [],
             Logging      = raw.Logging      ?? new AgentLoggingConfig()
         };
     }

@@ -292,7 +292,8 @@ Error codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
 `template_missing`, `apollo_launch_failed`, `invalid_slot_id`,
 `max_slots_exceeded`, `io_error`, `internal_error`, `invalid_token`,
 `session_id_conflict` (Phase 3 — connect handshake, requested session id already
-active; `409`).
+active; `409`), `invalid_session_id` (Phase 3 — bad id charset/length; `400`),
+`no_free_slots` (Phase 3 — not enough free slots for the session; `409`).
 *(`slot_in_use` = `DELETE /slots/{id}` on a running slot; use
 `POST /slots/{id}/force-deallocate` to stop-then-deallocate instead.)*
 *(`invalid_token` = missing or wrong `Authorization: Bearer` header on a
@@ -306,10 +307,11 @@ protected endpoint.)*
 > introduced during Slice 0 doc reconciliation and await owner sign-off.
 
 **Session id.** Client-minted default `Guid.NewGuid().ToString("N")` (32 lowercase
-hex) **(proposed)**; override via `--session-id <string>` (any non-empty string).
-Sent on the connect handshake. Agent enforces **global uniqueness across active
-sessions**; collision → refuse with `409 session_id_conflict`, client surfaces and
-stops (no retry).
+hex); override via `--session-id <string>`. **Charset: 1–64 chars of `[A-Za-z0-9_-]`**
+(the id becomes a record file name; this also blocks path traversal). Invalid →
+`400 invalid_session_id`. Sent on the connect handshake; the agent enforces **global
+uniqueness across active sessions** — collision → `409 session_id_conflict`, client
+surfaces and stops (no retry).
 
 **Session states:** `Provisioned` | `Connected` | `Ended` (see ARCHITECTURE for
 transitions). **Provision grace window default 30s (proposed configurable).**
@@ -396,10 +398,14 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
 
 ### New endpoints
 
-- **`POST /sessions`** (connect handshake, decided) — allocate + vet `session_id` +
-  persist record + run agent `session_started` hooks + respond go with the allocated
-  slot set. `POST /slots` stays allocation-only and creates no session. Collision →
-  `409 session_id_conflict`. Request/response body finalized at Slice 6.4.
+- **`POST /sessions`** (connect handshake) — Request `{ "sessionId": "<id>", "count": N }`.
+  The agent vets the id, picks N **free** slots (not held by another active session,
+  not `Connected`; allocates/starts as needed — session-aware), persists the record,
+  runs agent `session_started` hooks, and responds `{ "sessionId", "slots": [SlotDto…] }`
+  with the running slots (partial success: a slot that fails to start is dropped).
+  `POST /slots` stays allocation-only and creates no session. Errors:
+  `400 invalid_session_id`, `400 invalid_slot_id` (count < 1), `409 session_id_conflict`,
+  `409 no_free_slots`, `500 apollo_launch_failed`.
 - **`DELETE /sessions/{id}`** — clean-disconnect ping. Fast-path only (probe-watch
   backstops it). Idempotent; unknown id → `200`.
 
@@ -414,12 +420,14 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
   (default) leaves Apollo running; `--purge` stops+deallocates the session's slots
   (Slot 0 excluded, wins over `--keep-running` with a warning). No id → all sessions.
 
-### New config surface **(proposed)**
+### New config surface
 
-- **Client `lance.json`:** `hooks: [{ "active": true, "path": "…" }]`.
-- **Agent `lance-agent.json`:** `hooks: [{ "active": true, "path": "…" }]`, and a
+- **Agent `lance-agent.json`** (implemented): `hooks: [{ "active": true, "path": "…" }]`
+  (omitted `active` defaults to true), and a
   `sessions: { "provisionGraceSeconds": 30, "probePollSeconds": 1, "recordDir": "…" }`
   block (defaults shown; `recordDir` defaults to `%ProgramData%\Lance\sessions`).
+- **Client `lance.json`** (Slice 6.6): `hooks: [{ "active": true, "path": "…" }]`, plus
+  repeatable `--hook <path>` additive over the config list.
 
 ## Build / project setup
 
