@@ -284,7 +284,7 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 
 2. **Daily-use fixes and polish.**
    Issues surfaced during personal daily use.
-   - **Log clarity pass (agent + client).** Agent logs are hard to follow — Lance's
+   - **Log clarity pass (agent + client).** ✓ **Done.** Agent logs are hard to follow — Lance's
      meaningful lines are buried under framework/HTTP request noise; quiet the noisy
      categories and make the domain events read as a clear narrative. Client output
      over-relies on decorative table framing (a gimmick where a plain line reads
