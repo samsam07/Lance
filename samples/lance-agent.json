@@ -30,7 +30,7 @@
     "recordDir": "C:\\ProgramData\\Lance\\sessions"
   },
   "hooks": [
-    { "active": false, "path": "hooks\\vox.json" }
+    { "active": false, "path": "hooks\\vox.agent.json" }
   ],
   "logging": {
     "level": "Information",

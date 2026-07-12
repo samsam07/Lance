@@ -23,7 +23,7 @@
     "color": true
   },
   "hooks": [
-    { "active": false, "path": "hooks\\vox.json" }
+    { "active": false, "path": "hooks\\vox.client.json" }
   ],
   "logging": {
     "level": "Information",

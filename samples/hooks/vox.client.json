@@ -1,0 +1,15 @@
+{
+  "name": "vox",
+  "events": {
+    "session_started": {
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["launch-vox", "--peer", "${LANCE_AGENT_IP}"] }
+      ]
+    },
+    "session_ended": {
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["kill-vox"] }
+      ]
+    }
+  }
+}

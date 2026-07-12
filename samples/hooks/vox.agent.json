@@ -1,0 +1,19 @@
+{
+  "name": "vox",
+  "events": {
+    "session_started": {
+      "priority": 1000,
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["backup", "audio-config"], "onError": "terminate" },
+        { "command": "audiohelper.exe", "args": ["switch", "audio", "--playback", "VB Cable A", "--capture", "VB Cable B"] },
+        { "command": "audiohelper.exe", "args": ["launch-vox", "--peer", "${LANCE_CLIENT_IP}", "--playback", "VB Cable A", "--capture", "VB Cable B"] }
+      ]
+    },
+    "session_ended": {
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["kill-vox"] },
+        { "command": "audiohelper.exe", "args": ["restore", "audio-config"] }
+      ]
+    }
+  }
+}

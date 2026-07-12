@@ -325,9 +325,13 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      args are the unreachable-agent fallback; kills Moonlights, pings the agent,
      `--purge` also stops+deallocates (Slot 0 excluded). The daemon also pings on its
      own teardown.
-   - **6.8 — Reference `vox` hooks + end-to-end validation.** Ship sample agent +
-     client hooks, run the full flow, verify crash-recovery replay by killing the
-     agent mid-session.
+   - **6.8 — Reference `vox` hooks + end-to-end validation.** ✓ **Hooks shipped.**
+     `samples/hooks/`: `vox.agent.json` + `vox.client.json` (the reference `vox`
+     flow) and `smoke.json` (dependency-free — appends to a log on each event, for
+     validating the mechanism + crash-recovery replay without extra tooling).
+     **End-to-end run pending** — needs the live Apollo+Moonlight environment (see the
+     validation runbook); verify the full §9 flow and crash-recovery replay by killing
+     the agent mid-session.
 
 ### Review-depth guide (Phase 3)
 - **Daily-use fixes** (1): varies per issue — investigate before coding;
