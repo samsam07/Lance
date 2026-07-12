@@ -121,18 +121,49 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
 
         if (_records.TryRemove(sessionId, out SessionRecord? record))
         {
-            Dictionary<string, string> env = new(record.Env, StringComparer.Ordinal)
-            {
-                [LanceEnv.Event] = LanceEvents.SessionEnded,
-                [LanceEnv.EventSource] = source
-            };
-
-            await _dispatcher.RunResolvedAsync(record.TeardownCommands, env, cancellationToken);
-            await _store.DeleteAsync(sessionId, cancellationToken);
+            await RunTeardownAsync(record, source, cancellationToken);
         }
 
         _registry.Remove(sessionId);
         _logger.LogInformation("Session {SessionId}: ended ({Source}); slots freed, Apollo left running.", sessionId, source);
+    }
+
+    public void Readopt(SessionRecord record)
+    {
+        Session session = new()
+        {
+            Id = record.SessionId,
+            ClientIp = record.ClientIp,
+            SlotIds = record.SlotIds,
+            State = SessionState.Connected,
+            CreatedAt = record.CreatedAt,
+            ConnectedAt = DateTimeOffset.UtcNow
+        };
+        if (_registry.TryAdd(session))
+        {
+            _records[record.SessionId] = record;
+            _logger.LogInformation("Session {SessionId}: re-adopted after restart; a client is still connected.", record.SessionId);
+        }
+    }
+
+    public async Task ReplayTeardownAsync(SessionRecord record, string source, CancellationToken cancellationToken = default)
+    {
+        await RunTeardownAsync(record, source, cancellationToken);
+        _logger.LogInformation("Session {SessionId}: orphaned teardown replayed ({Source}); record cleared.", record.SessionId, source);
+    }
+
+    private async Task RunTeardownAsync(SessionRecord record, string source, CancellationToken cancellationToken)
+    {
+        // Set event/source fresh (never restored from the snapshot) so a hook can tell a
+        // replayed teardown from a live one. Teardown commands must be idempotent.
+        Dictionary<string, string> env = new(record.Env, StringComparer.Ordinal)
+        {
+            [LanceEnv.Event] = LanceEvents.SessionEnded,
+            [LanceEnv.EventSource] = source
+        };
+
+        await _dispatcher.RunResolvedAsync(record.TeardownCommands, env, cancellationToken);
+        await _store.DeleteAsync(record.SessionId, cancellationToken);
     }
 
     private async Task PersistAndStartAsync(Session session, string agentIp, CancellationToken cancellationToken)

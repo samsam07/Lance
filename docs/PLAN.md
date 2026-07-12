@@ -306,9 +306,11 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      `session_id` (collision → refuse), allocate, persist, run agent hooks, respond
      go; background watch fires `provision_timeout` / `probe_watch` → `session_ended`.
      Implement the new `POST /sessions` endpoint (`[SESSION-ENDPOINT]` resolved).
-   - **6.5 — Agent: crash recovery / reconciliation.** On startup, before the
-     listener opens: probe surviving records; connected → re-adopt, idle → replay
-     snapshotted teardown, delete record.
+   - **6.5 — Agent: crash recovery / reconciliation.** ✓ **Done.** On startup, after
+     adoption and before the listener opens, `SessionReconciler` probes each surviving
+     record's slots: any connected → re-adopt (Connected); all idle → replay the
+     snapshotted teardown (`source=reconcile`) and delete the record. Point-in-time
+     probe (no grace); Apollo is never stopped.
    - **6.6 — Client: foreground daemon connect.** Blocking; Job Object (Win) /
      tree-kill (Linux); degraded-launch policy; SIGHUP/Ctrl-C teardown;
      `session_started`/`session_ended` client hooks.

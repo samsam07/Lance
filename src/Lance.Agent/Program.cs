@@ -85,6 +85,7 @@ internal static class Program
             builder.Services.AddSingleton<HookLoader>();
             builder.Services.AddSingleton<HookDispatcher>();
             builder.Services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>();
+            builder.Services.AddSingleton<SessionReconciler>();
             builder.Services.AddTransient<BearerTokenMiddleware>();
             builder.Services.AddTransient<HttpBodyLoggingMiddleware>();
 
@@ -115,6 +116,10 @@ internal static class Program
             }
             Log.Information("Adoption complete: {Standard} standard slot(s), {NonStandard} non-standard slot(s) adopted",
                 standardAdopted, nonStandardAdopted);
+
+            // Crash recovery: replay orphaned session teardowns / re-adopt live sessions
+            // BEFORE the listener opens, so a fresh connect isn't clobbered by a replay.
+            await app.Services.GetRequiredService<SessionReconciler>().ReconcileAsync();
 
             // Synchronous callback forced by the ASP.NET Core API — the one permitted
             // deviation from the "no GetAwaiter().GetResult()" rule in CONVENTIONS.md.

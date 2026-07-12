@@ -1,6 +1,5 @@
 using Lance.Agent.Configuration;
 using Lance.Agent.Services;
-using Lance.Shared.Dtos;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -86,7 +85,7 @@ internal sealed class SessionDetectionService : BackgroundService
             return;
         }
 
-        IReadOnlyDictionary<int, bool> slotConnected = MapSlotConnectivity();
+        IReadOnlyDictionary<int, bool> slotConnected = SlotConnectivity.Snapshot(_scanner, _probe, _portMap);
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
         foreach (Session session in sessions)
@@ -132,20 +131,5 @@ internal sealed class SessionDetectionService : BackgroundService
             _logger.LogInformation("Session {SessionId}: the client disconnected; ending it.", session.Id);
             await _orchestrator.EndSessionAsync(session.Id, "probe_watch", cancellationToken);
         }
-    }
-
-    private IReadOnlyDictionary<int, bool> MapSlotConnectivity()
-    {
-        IReadOnlyDictionary<int, IReadOnlySet<int>> udpByProcess = _probe.SnapshotByPid();
-        Dictionary<int, bool> connected = [];
-        foreach (SlotDto slot in _scanner.Scan())
-        {
-            if (slot.ProcessId is int processId)
-            {
-                connected[slot.Id] = SlotConnectivity.IsConnected(processId, slot.Port, udpByProcess, _portMap);
-            }
-        }
-
-        return connected;
     }
 }

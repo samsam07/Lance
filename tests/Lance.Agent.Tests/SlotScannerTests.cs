@@ -131,7 +131,7 @@ public sealed class SlotScannerTests
     }
 }
 
-file sealed class FakeUdpEndpointProbe : IUdpEndpointProbe
+internal sealed class FakeUdpEndpointProbe : IUdpEndpointProbe
 {
     private readonly Dictionary<int, IReadOnlySet<int>> _byPid;
 
