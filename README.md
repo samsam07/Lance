@@ -20,10 +20,17 @@ Two components cooperate:
 | `lance-agent` | Web API that manages Apollo instances | Remote machine (Windows) |
 | `lance` | CLI that drives the session from the local machine | Local machine (Windows or Linux) |
 
-`lance connect` asks the agent to start one Apollo instance per monitor, then
-launches one Moonlight window per instance. Each instance uses an independent
+`lance connect` opens a **session**: it asks the agent to start one Apollo
+instance per monitor, launches one Moonlight window per instance, then **stays
+running in the foreground** until the session ends — you run `lance disconnect`,
+close the streams, or press Ctrl-C. Each instance uses an independent
 configuration cloned from your existing Apollo setup. Each clone has its own
 identity and must be paired with Moonlight once before it can be used.
+
+While a session runs, the agent watches the streams (so it cleans up even if the
+client machine vanishes), and both sides can run **hooks** — external commands you
+configure to fire on session start/end, e.g. to bridge a microphone back to the
+host. See [Sessions & hooks](#sessions--hooks).
 
 A **slot** is Lance's term for one Apollo instance and its configuration. Slot 0
 is your original Apollo config (the template); slots 1, 2, … are clones. `lance
@@ -126,7 +133,7 @@ lance status
 # List physical monitors on this machine (use the IDs with --monitors)
 lance monitors
 
-# Connect to all physical monitors
+# Connect to all physical monitors — BLOCKS until the session ends (Ctrl-C to end)
 lance connect
 
 # Connect to specific monitors only (1-indexed, comma-separated)
@@ -135,17 +142,23 @@ lance connect --monitors 1,3
 # Connect with custom Moonlight flags (appended after the defaults; later flags win)
 lance connect --monitors 1,2 --options "--fps 120 --bitrate 100000"
 
-# Disconnect all active sessions (kills Moonlight, stops Apollo on the remote)
+# Give the session an explicit id and run extra hook files (repeatable)
+lance connect --session-id office --hook ~/hooks/vox.client.json
+
+# --- Disconnect runs from a SEPARATE terminal (connect is blocking) ---
+
+# End one session by id — kills its Moonlights; the agent tears down its side.
+# Apollo is LEFT RUNNING on the remote by default (fast reconnect).
+lance disconnect --session-id office
+
+# End all active sessions
 lance disconnect
 
-# Disconnect specific slots only
-lance disconnect --slots 1,2
+# Also stop and deallocate the session's slots on the remote (Slot 0 excluded)
+lance disconnect --session-id office --purge
 
-# Disconnect but leave Apollo running on the remote (for quick reconnect)
-lance disconnect --keep-running
-
-# Stop Apollo and remove slot configs on the remote
-lance disconnect --purge
+# Fallback when the agent is unreachable: kill Moonlights by host:port
+lance disconnect 192.168.1.50:47989
 
 # Low-level slot management
 # <ids> is one id or a comma-separated list (e.g. 1 or 1,2,3); each id is
@@ -170,6 +183,60 @@ lance config <ids>
 -v, --verbose         Enable debug logging to stderr
     --no-color        Disable ANSI colour output
 ```
+
+---
+
+## Sessions & hooks
+
+A **session** is one `lance connect` invocation and the slots it acquired.
+`lance connect` runs in the foreground and blocks until the session ends. Both
+sides end independently from their own signals:
+
+- **Client** ends when its last Moonlight exits, on Ctrl-C, or when you run
+  `lance disconnect`. It then runs its `session_ended` hooks and pings the agent.
+- **Agent** ends when the clean-disconnect ping arrives, or — as a backstop, so it
+  cleans up even if the client machine dies — when it detects the streams are gone
+  (a few seconds after a hard cut). If the agent itself crashes mid-session, it
+  replays the pending teardown on restart.
+
+At session end the agent frees the slots but **leaves Apollo running** (fast
+reconnect); use `lance disconnect --purge` to stop and deallocate them too.
+
+**Hooks** are external commands that run on session events. Each side runs its own
+hooks from its own config — nothing crosses the wire. A hook file is JSON:
+
+```json
+{
+  "name": "vox",
+  "events": {
+    "session_started": {
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["launch-vox", "--peer", "${LANCE_AGENT_IP}"] }
+      ]
+    },
+    "session_ended": {
+      "commands": [
+        { "command": "audiohelper.exe", "args": ["kill-vox"] }
+      ]
+    }
+  }
+}
+```
+
+- Commands run in array order; `async: true` spawns without waiting; `onError`
+  (`terminate` | `continue`) and `timeoutSeconds` control a synchronous command's
+  failure handling. Multiple hook files are ordered by `priority` (lower first).
+- `${VAR}` in `args` is substituted from the event payload — `LANCE_SESSION_ID`,
+  `LANCE_AGENT_IP`, `LANCE_CLIENT_IP`, `LANCE_SLOT_IDS`, `LANCE_SIDE`, and (at
+  teardown) `LANCE_EVENT_SOURCE`. There is no shell; commands are launched directly.
+- Configure hooks with `hooks: [{ active, path }]` in `lance-agent.json` /
+  `lance.json`, or `--hook <path>` on `lance connect` (repeatable, added on top).
+- Lance never supervises hook-spawned processes — a tool whose teardown must kill a
+  process has to make it findable (a pidfile or a wrapper that tracks the PID).
+
+Ready-made examples are in [`samples/hooks/`](samples/hooks/), including
+`smoke.json` — a dependency-free hook that logs each event to
+`%TEMP%\lance-hook-smoke.log`, handy for confirming hooks fire.
 
 ---
 
@@ -206,6 +273,14 @@ Place beside `lance-agent.exe`. Missing file → built-in defaults apply.
     "templateName": "Lance-Template",
     "configNamePattern": "sunshine_{id}.conf"
   },
+  "sessions": {
+    "provisionGraceSeconds": 30,
+    "probePollSeconds": 1,
+    "recordDir": "C:\\ProgramData\\Lance\\sessions"
+  },
+  "hooks": [
+    { "active": false, "path": "hooks\\vox.agent.json" }
+  ],
   "logging": {
     "level": "Information",
     "filePath": "lance-agent.log",
@@ -213,6 +288,11 @@ Place beside `lance-agent.exe`. Missing file → built-in defaults apply.
   }
 }
 ```
+
+`sessions` tunes teardown detection (`provisionGraceSeconds` = how long a session
+may wait for its first stream; `probePollSeconds` = poll interval; `recordDir` =
+where crash-recovery records are written). `hooks` lists hook files to run on
+session events.
 
 ### Client — `lance.json`
 
@@ -230,6 +310,9 @@ Place beside `lance.exe` / `lance`, or specify with `--config <path>`.
     "defaultFlags": ["--fps", "60", "--video-codec", "HEVC", "--bitrate", "80000", "--no-vsync"]
   },
   "ui": { "color": true },
+  "hooks": [
+    { "active": false, "path": "hooks\\vox.client.json" }
+  ],
   "logging": { "level": "Information", "filePath": null }
 }
 ```
