@@ -66,6 +66,21 @@ internal sealed class AgentClient : IDisposable
             cancellationToken);
     }
 
+    public async Task<AgentResult<SessionResponse>> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        return await GetAsync($"sessions/{sessionId}", LanceSharedJsonContext.Default.SessionResponse, cancellationToken);
+    }
+
+    public async Task<AgentResult<SessionsListResponse>> GetSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetAsync("sessions", LanceSharedJsonContext.Default.SessionsListResponse, cancellationToken);
+    }
+
+    public async Task<AgentResult<bool>> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        return await DeleteAsync($"sessions/{sessionId}", cancellationToken);
+    }
+
     public async Task<AgentResult<bool>> StartSlotAsync(int slotId, CancellationToken cancellationToken = default)
     {
         return await PostNoBodyAsync($"slots/{slotId}/start", cancellationToken);

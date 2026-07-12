@@ -21,6 +21,11 @@ internal interface ISessionOrchestrator
     Task<SessionCreationResult> CreateSessionAsync(string sessionId, int count, string clientIp, string agentIp, CancellationToken cancellationToken = default);
     Task EndSessionAsync(string sessionId, string source, CancellationToken cancellationToken = default);
 
+    // Query for the disconnect fast-path: which slots a session holds, so the client
+    // can match and kill the right Moonlights.
+    SessionResponse? GetSession(string sessionId);
+    SessionsListResponse GetAllSessions();
+
     // Crash recovery (Slice 6.5). A surviving record whose session is still streaming
     // is re-adopted into memory (Connected); an orphaned one has its teardown replayed.
     void Readopt(SessionRecord record);

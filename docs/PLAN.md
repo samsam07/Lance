@@ -318,9 +318,13 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      last-exit teardown. `--session-id` + repeatable `--hook`. Clean-disconnect ping and
      explicit console-close/SIGHUP hook-running deferred to 6.7 (Job Object is the hard-
      death safety net meanwhile).
-   - **6.7 — Client: disconnect + clean-disconnect ping.** Session-based
-     (`--session-id`, agent fast-path + `host:port` fallback); `--keep-running`
-     (default) / `--purge`; `DELETE /sessions/{id}`.
+   - **6.7 — Client: disconnect + clean-disconnect ping.** ✓ **Done.** Agent gained
+     `GET /sessions`, `GET /sessions/{id}`, `DELETE /sessions/{id}` (ping →
+     `session_ended(ping)`). `lance disconnect [--session-id] [--keep-running]
+     [--purge] [host:port…]` — agent fast-path resolves a session's slots, `host:port`
+     args are the unreachable-agent fallback; kills Moonlights, pings the agent,
+     `--purge` also stops+deallocates (Slot 0 excluded). The daemon also pings on its
+     own teardown.
    - **6.8 — Reference `vox` hooks + end-to-end validation.** Ship sample agent +
      client hooks, run the full flow, verify crash-recovery replay by killing the
      agent mid-session.

@@ -13,3 +13,8 @@ public sealed record SessionResponse
     public required string SessionId { get; init; }
     public required SlotDto[] Slots { get; init; }
 }
+
+public sealed record SessionsListResponse
+{
+    public required SessionResponse[] Sessions { get; init; }
+}

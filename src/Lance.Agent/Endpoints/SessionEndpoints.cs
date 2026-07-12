@@ -11,6 +11,33 @@ internal static class SessionEndpoints
     public static void MapSessionEndpoints(this WebApplication app)
     {
         app.MapPost("/sessions", CreateSession);
+        app.MapGet("/sessions", GetSessions);
+        app.MapGet("/sessions/{id}", GetSession);
+        app.MapDelete("/sessions/{id}", DeleteSession);
+    }
+
+    private static Ok<SessionsListResponse> GetSessions(ISessionOrchestrator orchestrator)
+    {
+        return TypedResults.Ok(orchestrator.GetAllSessions());
+    }
+
+    private static Results<Ok<SessionResponse>, NotFound<ErrorResponse>> GetSession(string id, ISessionOrchestrator orchestrator)
+    {
+        SessionResponse? session = orchestrator.GetSession(id);
+        if (session is null)
+        {
+            return TypedResults.NotFound(new ErrorResponse { Error = "session_not_found", Message = $"Session '{id}' is not active." });
+        }
+
+        return TypedResults.Ok(session);
+    }
+
+    // Clean-disconnect ping — the fast path. Idempotent: an unknown or already-ended
+    // session is a no-op. Probe-watch backstops it if it never arrives.
+    private static async Task<Ok> DeleteSession(string id, ISessionOrchestrator orchestrator, CancellationToken cancellationToken)
+    {
+        await orchestrator.EndSessionAsync(id, "ping", cancellationToken);
+        return TypedResults.Ok();
     }
 
     private static async Task<Results<Ok<SessionResponse>, JsonHttpResult<ErrorResponse>>> CreateSession(

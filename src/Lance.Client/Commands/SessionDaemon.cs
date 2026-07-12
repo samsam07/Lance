@@ -83,6 +83,9 @@ internal static class SessionDaemon
         await dispatcher.DispatchAsync(LanceEvents.SessionEnded, hooks, endedEnv, CancellationToken.None);
 
         KillRemaining(launched);
+
+        // Clean-disconnect ping (fast path). Best-effort — probe-watch backstops it.
+        await client.DeleteSessionAsync(sessionId, CancellationToken.None);
         return ExitCodes.Success;
     }
 

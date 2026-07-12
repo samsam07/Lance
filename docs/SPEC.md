@@ -293,7 +293,8 @@ Error codes: `slot_not_found`, `slot_not_running`, `slot_in_use`,
 `max_slots_exceeded`, `io_error`, `internal_error`, `invalid_token`,
 `session_id_conflict` (Phase 3 — connect handshake, requested session id already
 active; `409`), `invalid_session_id` (Phase 3 — bad id charset/length; `400`),
-`no_free_slots` (Phase 3 — not enough free slots for the session; `409`).
+`no_free_slots` (Phase 3 — not enough free slots for the session; `409`),
+`session_not_found` (Phase 3 — `GET /sessions/{id}` on an inactive session; `404`).
 *(`slot_in_use` = `DELETE /slots/{id}` on a running slot; use
 `POST /slots/{id}/force-deallocate` to stop-then-deallocate instead.)*
 *(`invalid_token` = missing or wrong `Authorization: Bearer` header on a
@@ -406,8 +407,12 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
   `POST /slots` stays allocation-only and creates no session. Errors:
   `400 invalid_session_id`, `400 invalid_slot_id` (count < 1), `409 session_id_conflict`,
   `409 no_free_slots`, `500 apollo_launch_failed`.
-- **`DELETE /sessions/{id}`** — clean-disconnect ping. Fast-path only (probe-watch
-  backstops it). Idempotent; unknown id → `200`.
+- **`GET /sessions`** → `{ "sessions": [SessionResponse…] }` — active sessions with
+  their slots (the no-id disconnect enumerates these).
+- **`GET /sessions/{id}`** → `SessionResponse` — one session's slots (the disconnect
+  fast-path). Not found → `404 session_not_found`.
+- **`DELETE /sessions/{id}`** — clean-disconnect ping → `session_ended(ping)`. Fast-path
+  only (probe-watch backstops it). Idempotent; unknown/ended id → `200`.
 
 ### New CLI surface
 

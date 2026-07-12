@@ -12,4 +12,5 @@ namespace Lance.Shared.Serialization;
 [JsonSerializable(typeof(ConfigUrlResponse))]
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(SessionResponse))]
+[JsonSerializable(typeof(SessionsListResponse))]
 public sealed partial class LanceSharedJsonContext : JsonSerializerContext { }

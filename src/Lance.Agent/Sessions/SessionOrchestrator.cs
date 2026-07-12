@@ -128,6 +128,42 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
         _logger.LogInformation("Session {SessionId}: ended ({Source}); slots freed, Apollo left running.", sessionId, source);
     }
 
+    public SessionResponse? GetSession(string sessionId)
+    {
+        if (!_registry.TryGet(sessionId, out Session? session) || session is null)
+        {
+            return null;
+        }
+
+        return new SessionResponse { SessionId = sessionId, Slots = SlotsFor(session) };
+    }
+
+    public SessionsListResponse GetAllSessions()
+    {
+        List<SessionResponse> sessions = [];
+        foreach (Session session in _registry.GetAll())
+        {
+            sessions.Add(new SessionResponse { SessionId = session.Id, Slots = SlotsFor(session) });
+        }
+
+        return new SessionsListResponse { Sessions = [.. sessions] };
+    }
+
+    private SlotDto[] SlotsFor(Session session)
+    {
+        HashSet<int> ids = [.. session.SlotIds];
+        List<SlotDto> slots = [];
+        foreach (SlotDto slot in _scanner.Scan())
+        {
+            if (ids.Contains(slot.Id))
+            {
+                slots.Add(slot);
+            }
+        }
+
+        return [.. slots];
+    }
+
     public void Readopt(SessionRecord record)
     {
         Session session = new()
