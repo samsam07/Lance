@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lance.Shared\Lance.Shared.csproj" />
+    <ProjectReference Include="..\Lance.Hooks\Lance.Hooks.csproj" />
   </ItemGroup>
 
   <ItemGroup>

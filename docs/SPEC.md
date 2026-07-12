@@ -365,7 +365,7 @@ At replay, `LANCE_EVENT` / `LANCE_EVENT_SOURCE` are set **fresh**
 | `command` | command | — | Executable. `command` + `args[]` → `ProcessStartInfo.ArgumentList`. No shell. |
 | `args` | command | `[]` | Argument array; supports `${VAR}` substitution (resolved by Lance before spawn). |
 | `async` | command | `false` | `false` = wait for exit before next command; `true` = spawn and don't wait. |
-| `onError` | command | `terminate` | `terminate` = stop the chain on nonzero exit; `continue` = log and proceed. Meaningless for `async: true`. |
+| `onError` | command | `terminate` | `terminate` = stop the **rest of this file's** commands on nonzero exit (other files bound to the same event still run — files are independent tools); `continue` = log and proceed. Meaningless for `async: true`. A timed-out `async: false` command counts as a failure and applies `onError` too. |
 | `timeoutSeconds` | command | 30 | Applies only to `async: false`. On timeout: log, then apply `onError`. |
 | `workingDir` | command | dir containing the hook file | Working directory for the spawn. |
 

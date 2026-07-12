@@ -1,5 +1,6 @@
 using Lance.Agent.Configuration;
 using Lance.Agent.Sessions;
+using Lance.Hooks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
