@@ -470,7 +470,7 @@ dropped; unnecessary given local event dispatch + probe-based detection.
   **persist the record**, run agent `session_started` hooks, respond go with the
   allocated slot set. `POST /slots` stays allocation-only and **never creates a
   session**; the two are independent (§2). Request/response body finalized at Slice
-  6.4.
+  1.4.
 - **Clean-disconnect ping** (client → agent): `DELETE /sessions/{id}` shape.
   Fast-path only, not required for correctness (probe-watch backstops it).
 - **Sequencing:** the agent's `session_started` hooks complete before the client's;
@@ -513,7 +513,7 @@ dropped; unnecessary given local event dispatch + probe-based detection.
   Apollo's `/pair` handler short-circuits (returns success) when the client cert
   is already present, rather than unconditionally triggering the full PIN flow
   for any new UUID.
-- `[VALIDATE-UDP]` **Resolved (Slice 6.1, 2026-07-11).** Validated against a live
+- `[VALIDATE-UDP]` **Resolved (Slice 1.1, 2026-07-11).** Validated against a live
   stream. Streaming UDP ports = base `+9/+10/+11` (video/control/audio) on the Apollo
   process itself. Connect detected within ~1s of stream start; ungraceful teardown
   (hard cut *and* Lance's kill-based `disconnect`) detected ~6–7s. The TCP
@@ -521,7 +521,7 @@ dropped; unnecessary given local event dispatch + probe-based detection.
   presence is the sole detector. Offsets recorded in SPEC.
 - `[SESSION-ENDPOINT]` **Resolved (owner, 2026-07-11).** Connect handshake is a
   **new `POST /sessions`** endpoint; `POST /slots` stays allocation-only and never
-  creates a session. Request/response body finalized at Slice 6.4.
+  creates a session. Request/response body finalized at Slice 1.4.
 - `[VERIFY-MUTEX]` — named-mutex cross-process semantics on Linux unverified. May
   intersect the foreground-daemon model (single-instance / session-id uniqueness);
   resolve before the client daemon slice if it does.

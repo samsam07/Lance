@@ -12,12 +12,12 @@ using Serilog.Extensions.Logging;
 
 namespace Lance.Client.Commands;
 
-// The foreground session daemon (Slice 6.6). `lance connect` blocks here until the
+// The foreground session daemon (Slice 1.6). `lance connect` blocks here until the
 // session ends: it hands the agent the session id + monitor count, launches one
 // Moonlight per returned slot inside a kill-on-close Job Object, runs session_started
 // hooks, then watches the streams. When the last one exits or the user interrupts, it
 // runs session_ended hooks, kills any survivors, and returns. The clean-disconnect ping
-// is Slice 6.7; until then the agent detects teardown via probe-watch.
+// is Slice 1.7; until then the agent detects teardown via probe-watch.
 internal static class SessionDaemon
 {
     public static async Task<int> RunAsync(

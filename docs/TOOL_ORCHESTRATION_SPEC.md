@@ -7,8 +7,8 @@ Status: design locked. One item requires empirical validation before implementat
 > `SPEC.md` ("Sessions & orchestration"), slice plan → `PLAN.md` (Phase 3 Slice 6).
 > This file is retained as the original design rationale; when it disagrees with the
 > canonical docs, **ARCHITECTURE/SPEC win** (per CLAUDE.md). Open markers carried
-> forward: `[VALIDATE-UDP]` (§5 detection, Slice 6.1) and `[SESSION-ENDPOINT]`
-> (§8 handshake endpoint shape, Slice 6.4).
+> forward: `[VALIDATE-UDP]` (§5 detection, Slice 1.1) and `[SESSION-ENDPOINT]`
+> (§8 handshake endpoint shape, Slice 1.4).
 
 ## 1. Overview
 

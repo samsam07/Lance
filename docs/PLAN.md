@@ -198,26 +198,27 @@ partial-success logic (Slice 4) at minimum. Integration tests deferred to Phase 
 
 ## Phase 3 — Beta
 
-**Goal:** takes a working Alpha and makes it solid. Fixes and polish found
-during daily use come first; then Linux client completions; then integration
-tests and hardening. A task belongs here if it fixes something discovered in
-use, closes a Linux gap, adds integration coverage, or improves resilience —
-without changing the deployment model.
+**Goal:** takes a working Alpha and makes it solid. The **sessions & tool
+orchestration subsystem** (Slice 1) is the major body of this phase and shipped
+first; the remaining work is daily-use fixes and polish, Linux client completions,
+integration tests, and hardening. A task belongs here if it adds the session layer,
+fixes something discovered in use, closes a Linux gap, adds integration coverage, or
+improves resilience — without changing the deployment model.
 
 **In scope**
+- **Sessions & tool orchestration subsystem** *(✓ code-complete — see Slice 1)* — the
+  session/event/hook layer that lets sidecar tools (`vox`, `clipline`, keystroke relay)
+  run with coordinated setup/teardown on both machines. Design locked in
+  `docs/TOOL_ORCHESTRATION_SPEC.md`, integrated into ARCHITECTURE ("Sessions & tool
+  orchestration") + SPEC ("Sessions & orchestration"). This is the **major body of
+  Phase 3** and supersedes the earlier *tentative* session-layer sketch (which was
+  monitor↔slot mapping only).
 - Daily-use fixes and polish (anything surfaced during use).
 - Linux client completions deferred from Phase 2.
 - Integration tests (agent + client, real HTTP, no mocks).
 - Client config XDG compliance (`[DEFER-PATHS]`).
 - `[VERIFY-APOLLO]` — Apollo Linux privilege model; gate Linux agent work on this.
 - TLS cert pinning / PEM support on the client (`[DEFER-TLS-PINNING]`).
-- **Sessions & tool orchestration subsystem** — the session/event/hook layer that
-  lets sidecar tools (`vox`, `clipline`, keystroke relay) run with coordinated
-  setup/teardown on both machines. Design locked in `docs/TOOL_ORCHESTRATION_SPEC.md`,
-  integrated into ARCHITECTURE ("Sessions & tool orchestration") + SPEC ("Sessions
-  & orchestration"). This is the **major body of Phase 3** and supersedes the earlier
-  *tentative* session-layer sketch (which was monitor↔slot mapping only). Broken into
-  its own multi-slice track — see Slice 6.
 - Pure Wayland/XWayland support for `lance monitors`.
 
 **Out of scope (deferred)**
@@ -229,7 +230,59 @@ without changing the deployment model.
 
 Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 
-1. **Daily-use fixes and polish.**
+1. **Sessions & tool orchestration subsystem.** *(✓ Complete — code-complete 1.0–1.8;
+   only the 1.8 live end-to-end run remains. Architecture-zone: the major Phase-3 body.)*
+   Behavior in ARCHITECTURE "Sessions & tool orchestration"; values in SPEC
+   "Sessions & orchestration". Sub-slices:
+
+   - **1.0 — Docs reconciliation.** ✓ **Done.** Integrate the spec, resolve/flag
+     conflicts (`[VALIDATE-UDP]`, `[SESSION-ENDPOINT]`, disconnect reconciliation),
+     produce this breakdown.
+   - **1.1 — `[VALIDATE-UDP]` detection probe + logging.** ✓ **Done (2026-07-11).**
+     UDP endpoint-presence probe (owning PID + resolved ports; base+offset map in a
+     host-adapter seam) + transition logging, validated against a live stream.
+     Offsets confirmed base `+9/+10/+11`; connect ~1s, ungraceful teardown ~6–7s. The
+     TCP `Connected` probe was retired — `SlotDto.Status` now derives from UDP
+     presence. Key finding: Lance's kill-based `disconnect` is ungraceful, so the
+     clean-disconnect ping (1.7) is the only fast disconnect path.
+   - **1.2 — Agent: session model + record persistence.** ✓ **Done.** State machine
+     `Provisioned→Connected→Ended`; atomic session record (temp+rename) at
+     `%ProgramData%\Lance\sessions\<id>.json`; persist-before-setup /
+     delete-after-teardown invariant.
+   - **1.3 — Hook engine (shared).** ✓ **Done.** New `Lance.Hooks` project: JSON
+     discovery/parse, `${VAR}` substitution, `ArgumentList` spawn (no shell),
+     `async`/`onError`/`timeoutSeconds`/`workingDir`, priority + array ordering,
+     env-payload injection.
+   - **1.4 — Agent: connect handshake + `session_started` + detection loop.** ✓ **Done.**
+     Vet `session_id` (collision → refuse), session-aware free-slot pick, persist, run
+     agent hooks, respond; background watch fires `provision_timeout` / `probe_watch` →
+     `session_ended`. New `POST /sessions` endpoint (`[SESSION-ENDPOINT]` resolved).
+   - **1.5 — Agent: crash recovery / reconciliation.** ✓ **Done.** On startup, after
+     adoption and before the listener opens, `SessionReconciler` probes each surviving
+     record's slots: any connected → re-adopt (Connected); all idle → replay the
+     snapshotted teardown (`source=reconcile`) and delete the record. Point-in-time
+     probe (no grace); Apollo is never stopped.
+   - **1.6 — Client: foreground daemon connect.** ✓ **Done.** `lance connect` blocks
+     until the session ends: `POST /sessions` handshake, launch one Moonlight per slot
+     in a kill-on-close Job Object (Win) / tree-kill (Linux), degraded-launch policy,
+     `session_started`/`session_ended` client hooks, block watching streams, Ctrl-C /
+     last-exit teardown. `--session-id` + repeatable `--hook`.
+   - **1.7 — Client: disconnect + clean-disconnect ping.** ✓ **Done.** Agent gained
+     `GET /sessions`, `GET /sessions/{id}`, `DELETE /sessions/{id}` (ping →
+     `session_ended(ping)`). `lance disconnect [--session-id] [--keep-running]
+     [--purge] [host:port…]` — agent fast-path resolves a session's slots, `host:port`
+     args are the unreachable-agent fallback; kills Moonlights, pings the agent,
+     `--purge` also stops+deallocates (Slot 0 excluded). The daemon also pings on its
+     own teardown.
+   - **1.8 — Reference `vox` hooks + end-to-end validation.** ✓ **Hooks shipped.**
+     `samples/hooks/`: `vox.agent.json` + `vox.client.json` (the reference `vox`
+     flow) and `smoke.json` (dependency-free — appends to a log on each event, for
+     validating the mechanism + crash-recovery replay without extra tooling).
+     **End-to-end run pending** — needs the live Apollo+Moonlight environment (see the
+     validation runbook); verify the full §9 flow and crash-recovery replay by killing
+     the agent mid-session.
+
+2. **Daily-use fixes and polish.**
    Issues surfaced during personal daily use.
    - **Log clarity pass (agent + client).** Agent logs are hard to follow — Lance's
      meaningful lines are buried under framework/HTTP request noise; quiet the noisy
@@ -240,7 +293,7 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      clutter. Follows the CONVENTIONS "Logging messages" rule.
    - *(Further items added as discovered.)*
 
-2. **Linux client completions.**
+3. **Linux client completions.**
    - `[DEFER-LINUX-WINDETECT]` — Window title detection for Moonlight instance
      matching (method 2). On Linux, `Process.MainWindowTitle` is not supported;
      use `wmctrl -lp` to enumerate window titles and cross-reference by PID.
@@ -259,94 +312,38 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      `sunshine.exe` (or the Linux binary) need `sudo` / `CAP_NET_BIND_SERVICE`?
      Document findings in ARCHITECTURE.md; adjust agent launch path accordingly.
 
-3. **Integration tests.**
+4. **Integration tests.**
    In-process agent host (`WebApplicationFactory` or `TestServer`), real
    slot operations against a temp config dir, and client HTTP calls over
    localhost. Target: allocate/start/stop/deallocate happy path; free-slot
    capacity logic; auth token enforcement; Connected-state TCP probe with a
    real listener. No mocking of HTTP or file I/O at this layer.
 
-4. **Client config XDG compliance (`[DEFER-PATHS]`).**
+5. **Client config XDG compliance (`[DEFER-PATHS]`).**
    On Linux, resolve `lance.json` from `$XDG_CONFIG_HOME/lance/lance.json`
    (default `~/.config/lance/lance.json`) before the binary-adjacent fallback.
    Windows behaviour unchanged. Document the full lookup order in README.
 
-5. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
+6. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
    Client currently skips TLS validation unconditionally. Add a `tls.certPath`
    field to `lance.json`: when set, load the PEM/DER file and pin the agent's
    cert against it instead of accepting all certs. When absent, behaviour is
    unchanged (accept all — suitable for trusted networks). Agent side: no
    change needed; this is client-only.
 
-6. **Sessions & tool orchestration subsystem.** *(Architecture-zone — the major
-   Phase-3 body. Its own multi-slice track, each with a review gate. Sub-slices
-   run in order; 6.1 gates everything that relies on liveness detection.)*
-   Behavior in ARCHITECTURE "Sessions & tool orchestration"; values in SPEC
-   "Sessions & orchestration". Sub-slices:
-
-   - **6.0 — Docs reconciliation** *(this slice, docs only — ✓ pending review).*
-     Integrate the spec, resolve/flag conflicts (`[VALIDATE-UDP]`,
-     `[SESSION-ENDPOINT]`, disconnect reconciliation), produce this breakdown.
-   - **6.1 — `[VALIDATE-UDP]` detection probe + logging.** ✓ **Done (2026-07-11).**
-     UDP endpoint-presence probe (owning PID + resolved ports; base+offset map in a
-     host-adapter seam) + transition logging, validated against a live stream.
-     Offsets confirmed base `+9/+10/+11`; connect ~1s, ungraceful teardown ~6–7s. The
-     TCP `Connected` probe was retired — `SlotDto.Status` now derives from UDP
-     presence. Key finding: Lance's kill-based `disconnect` is ungraceful, so the
-     clean-disconnect ping (6.7) is the only fast disconnect path.
-   - **6.2 — Agent: session model + record persistence.** State machine
-     `Provisioned→Connected→Ended`; atomic session record (temp+rename) at
-     `%ProgramData%\Lance\sessions\<id>.json`; persist-before-setup /
-     delete-after-teardown invariant. Hooks stubbed.
-   - **6.3 — Hook engine (shared).** JSON discovery/parse, `${VAR}` substitution,
-     `ArgumentList` spawn (no shell), `async`/`onError`/`timeoutSeconds`/`workingDir`,
-     priority + array ordering, env-payload injection. Pure library, unit-testable.
-     *(Decide: `Lance.Shared` vs. a new `Lance.Hooks` project.)*
-   - **6.4 — Agent: connect handshake + `session_started` + detection loop.** Vet
-     `session_id` (collision → refuse), allocate, persist, run agent hooks, respond
-     go; background watch fires `provision_timeout` / `probe_watch` → `session_ended`.
-     Implement the new `POST /sessions` endpoint (`[SESSION-ENDPOINT]` resolved).
-   - **6.5 — Agent: crash recovery / reconciliation.** ✓ **Done.** On startup, after
-     adoption and before the listener opens, `SessionReconciler` probes each surviving
-     record's slots: any connected → re-adopt (Connected); all idle → replay the
-     snapshotted teardown (`source=reconcile`) and delete the record. Point-in-time
-     probe (no grace); Apollo is never stopped.
-   - **6.6 — Client: foreground daemon connect.** ✓ **Done.** `lance connect` blocks
-     until the session ends: `POST /sessions` handshake, launch one Moonlight per slot
-     in a kill-on-close Job Object (Win) / tree-kill (Linux), degraded-launch policy,
-     `session_started`/`session_ended` client hooks, block watching streams, Ctrl-C /
-     last-exit teardown. `--session-id` + repeatable `--hook`. Clean-disconnect ping and
-     explicit console-close/SIGHUP hook-running deferred to 6.7 (Job Object is the hard-
-     death safety net meanwhile).
-   - **6.7 — Client: disconnect + clean-disconnect ping.** ✓ **Done.** Agent gained
-     `GET /sessions`, `GET /sessions/{id}`, `DELETE /sessions/{id}` (ping →
-     `session_ended(ping)`). `lance disconnect [--session-id] [--keep-running]
-     [--purge] [host:port…]` — agent fast-path resolves a session's slots, `host:port`
-     args are the unreachable-agent fallback; kills Moonlights, pings the agent,
-     `--purge` also stops+deallocates (Slot 0 excluded). The daemon also pings on its
-     own teardown.
-   - **6.8 — Reference `vox` hooks + end-to-end validation.** ✓ **Hooks shipped.**
-     `samples/hooks/`: `vox.agent.json` + `vox.client.json` (the reference `vox`
-     flow) and `smoke.json` (dependency-free — appends to a log on each event, for
-     validating the mechanism + crash-recovery replay without extra tooling).
-     **End-to-end run pending** — needs the live Apollo+Moonlight environment (see the
-     validation runbook); verify the full §9 flow and crash-recovery replay by killing
-     the agent mid-session.
-
 ### Review-depth guide (Phase 3)
-- **Daily-use fixes** (1): varies per issue — investigate before coding;
-  config-only changes are low risk; code changes follow normal review depth.
-- **Linux completions** (2): moderate — wmctrl availability and Wayland
-  detection logic are the subtle parts; review all fallback paths.
-- **Integration tests** (3): architecture-zone — test boundaries define what
-  we trust; review which layers are real vs. faked.
-- **XDG paths** (4): plumbing — review the lookup order matches the spec.
-- **TLS pinning** (5): moderate — cert loading and validation callback are
-  the correctness-critical parts; review closely.
-- **Sessions & tool orchestration** (6): architecture-zone throughout — new agent
+- **Sessions & tool orchestration** (1): architecture-zone throughout — new agent
   state, detection, crash recovery, a foreground client daemon, and cross-machine
-  coordination. Review every sub-slice at its own gate; 6.1's empirical validation
-  must land before the detection-dependent sub-slices are trusted.
+  coordination. Reviewed sub-slice by sub-slice at its own gate. *(Complete.)*
+- **Daily-use fixes** (2): varies per issue — investigate before coding;
+  config-only changes are low risk; code changes follow normal review depth.
+- **Linux completions** (3): moderate — wmctrl availability and Wayland
+  detection logic are the subtle parts; review all fallback paths.
+- **Integration tests** (4): architecture-zone — test boundaries define what
+  we trust; review which layers are real vs. faked.
+- **XDG paths** (5): plumbing — review the lookup order matches the spec.
+- **TLS pinning** (6): moderate — cert loading and validation callback are
+  the correctness-critical parts; review closely.
 
 ## Phase 4 — Release
 Hardening, packaging, install/service, polish. *(TBD.)*

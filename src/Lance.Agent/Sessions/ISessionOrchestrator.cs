@@ -26,7 +26,7 @@ internal interface ISessionOrchestrator
     SessionResponse? GetSession(string sessionId);
     SessionsListResponse GetAllSessions();
 
-    // Crash recovery (Slice 6.5). A surviving record whose session is still streaming
+    // Crash recovery (Slice 1.5). A surviving record whose session is still streaming
     // is re-adopted into memory (Connected); an orphaned one has its teardown replayed.
     void Readopt(SessionRecord record);
     Task ReplayTeardownAsync(SessionRecord record, string source, CancellationToken cancellationToken = default);

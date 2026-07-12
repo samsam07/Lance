@@ -6,7 +6,7 @@ namespace Lance.Agent.Sessions;
 
 // Persists session records to disk, one file per session, written atomically so a
 // crash mid-write never leaves a torn record. LoadAll feeds startup reconciliation
-// (Slice 6.5). See SPEC "Session record".
+// (Slice 1.5). See SPEC "Session record".
 internal interface ISessionRecordStore
 {
     Task SaveAsync(SessionRecord record, CancellationToken cancellationToken = default);

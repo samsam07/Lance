@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Lance.Agent.Sessions;
 
-// Startup crash recovery (Slice 6.5). A session record on disk means teardown never
+// Startup crash recovery (Slice 1.5). A session record on disk means teardown never
 // ran (agent crashed mid-session). For each surviving record: if any of its slots is
 // still streaming, the session is alive — re-adopt it; otherwise it is orphaned —
 // replay the snapshotted teardown and delete the record. Runs BEFORE the HTTP listener

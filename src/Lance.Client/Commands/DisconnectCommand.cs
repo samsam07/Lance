@@ -8,7 +8,7 @@ using Serilog;
 
 namespace Lance.Client.Commands;
 
-// Session-based disconnect (Slice 6.7). Kills a session's Moonlights (which makes the
+// Session-based disconnect (Slice 1.7). Kills a session's Moonlights (which makes the
 // blocking `lance connect` daemon tear down) and sends the clean-disconnect ping so the
 // agent ends its side immediately. The agent is the fast path for resolving a session's
 // slots; explicit host:port args are the degraded path when the agent is unreachable.
