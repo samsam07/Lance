@@ -7,7 +7,14 @@ public sealed record ClientConfig
     public AgentConnectionConfig? Agent { get; init; }
     public RemoteClientConfig RemoteClient { get; init; } = new();
     public UiConfig Ui { get; init; } = new();
+    public ClientHookEntry[]? Hooks { get; init; }
     public ClientLoggingConfig Logging { get; init; } = new();
+}
+
+public sealed record ClientHookEntry
+{
+    public string? Path { get; init; }
+    public bool? Active { get; init; }   // nullable so an omitted "active" defaults to true
 }
 
 public sealed record AgentConnectionConfig

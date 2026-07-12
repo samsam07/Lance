@@ -1,9 +1,7 @@
 using System.CommandLine;
-using System.Diagnostics;
 using Lance.Client.Configuration;
-using Lance.Client.Http;
 using Lance.Client.Infrastructure;
-using Lance.Shared.Dtos;
+using Lance.Hooks;
 using Serilog;
 
 namespace Lance.Client.Commands;
@@ -20,10 +18,20 @@ internal static class ConnectCommand
         {
             Description = "Extra Moonlight flags appended to each launch (e.g. \"--bitrate 80000 --fps 120\")"
         };
+        Option<string?> sessionIdOption = new("--session-id")
+        {
+            Description = "Session id (default: a fresh random id). Must be 1-64 chars of letters, digits, '-' or '_'."
+        };
+        Option<string[]> hookOption = new("--hook")
+        {
+            Description = "Path to a hook file to run on session events (repeatable; added on top of config hooks)"
+        };
 
-        Command command = new("connect", "Allocate and start slots, then launch one Moonlight per monitor");
+        Command command = new("connect", "Start a session: launch one Moonlight per monitor and block until it ends");
         command.Add(monitorsOption);
         command.Add(optionsOption);
+        command.Add(sessionIdOption);
+        command.Add(hookOption);
 
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
@@ -43,67 +51,13 @@ internal static class ConnectCommand
 
             Log.Information("Targeting agent at {AgentUrl}", agentUrl);
 
-            // Resolve target monitors → ordered list; position i drives slot i's resolution
-            string? monitorsStr = pr.GetValue(monitorsOption);
-            IReadOnlyList<MonitorInfo> allMonitors = MonitorEnumerator.Enumerate();
-            List<int> targetMonitorIds = new();
-
-            if (monitorsStr is null)
+            IReadOnlyList<MonitorInfo?>? targetMonitors = ResolveTargetMonitors(pr.GetValue(monitorsOption));
+            if (targetMonitors is null)
             {
-                if (allMonitors.Count == 0)
-                {
-                    Log.Error("Monitor detection failed. Use --monitors <list> to connect manually.");
-                    return ExitCodes.Generic;
-                }
-                foreach (MonitorInfo m in allMonitors)
-                    targetMonitorIds.Add(m.Id);
-            }
-            else
-            {
-                bool canValidate = allMonitors.Count > 0;
-                HashSet<int> validIds = new();
-                foreach (MonitorInfo m in allMonitors)
-                    validIds.Add(m.Id);
-
-                HashSet<int> seen = new();
-                foreach (string part in monitorsStr.Split(','))
-                {
-                    string trimmed = part.Trim();
-                    if (!int.TryParse(trimmed, out int id))
-                    {
-                        Log.Warning("Skipping invalid monitor ID '{Id}'", trimmed);
-                        continue;
-                    }
-                    if (!seen.Add(id))
-                    {
-                        Log.Error("Duplicate monitor ID {Id} in --monitors list", id);
-                        return ExitCodes.Generic;
-                    }
-                    if (canValidate && !validIds.Contains(id))
-                    {
-                        Log.Warning("Monitor {Id} not found on this machine — skipping", id);
-                        continue;
-                    }
-                    targetMonitorIds.Add(id);
-                }
-
-                if (targetMonitorIds.Count == 0)
-                {
-                    Log.Error("No valid monitor IDs in --monitors list");
-                    return ExitCodes.Generic;
-                }
+                return ExitCodes.Generic;
             }
 
-            Dictionary<int, MonitorInfo> monitorById = [];
-            foreach (MonitorInfo m in allMonitors)
-                monitorById[m.Id] = m;
-
-            int N = targetMonitorIds.Count;
-            Log.Information("Connecting {N} monitor(s)", N);
-
-            string executable = config.RemoteClient.Executable;
-            string[] defaultFlags = config.RemoteClient.DefaultFlags;
-            int timeout = config.Agent?.TimeoutSeconds ?? 30;
+            string sessionId = pr.GetValue(sessionIdOption) ?? Guid.NewGuid().ToString("N");
             string? token = CommandHelpers.ResolveToken(pr, globals, config);
 
             string? optionsStr = pr.GetValue(optionsOption);
@@ -111,206 +65,107 @@ internal static class ConnectCommand
                 ? []
                 : optionsStr.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            Log.Debug("Effective config — executable: {Executable}, flags: [{Flags}], timeout: {Timeout}s",
-                executable, string.Join(", ", defaultFlags), timeout);
+            IReadOnlyList<HookFileRef> hookReferences = BuildHookReferences(config, pr.GetValue(hookOption) ?? []);
 
-            using AgentClient client = new(agentUrl, timeout, token);
-
-            // Free-slot check: GET /health + GET /slots
-            int maxSlots = int.MaxValue;
-            AgentResult<HealthResponse> healthResult = await client.GetHealthAsync(ct);
-            if (healthResult.IsSuccess)
-            {
-                maxSlots = healthResult.Value!.MaxSlots;
-                CommandHelpers.CheckAgentVersion(healthResult.Value!);
-            }
-
-            AgentResult<SlotsResponse> slotsResult = await client.GetSlotsAsync(ct);
-            if (slotsResult.IsUnreachable)
-            {
-                Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
-                return ExitCodes.AgentUnreachable;
-            }
-            if (!slotsResult.IsSuccess)
-            {
-                Log.Error("Agent returned error {ErrorCode}: {ErrorMessage}", slotsResult.ErrorCode, slotsResult.ErrorMessage);
-                return ExitCodes.AgentError;
-            }
-
-            int availableCapacity = ComputeAvailableCapacity(slotsResult.Value!.Slots, maxSlots);
-            if (N > availableCapacity)
-            {
-                Log.Error(
-                    "No capacity for {N} monitor(s): {Available} slot(s) available (max {Max}). Disconnect first.",
-                    N, availableCapacity, maxSlots);
-                return ExitCodes.NoFreeSlots;
-            }
-
-            // Allocate to reach N slots in the pool
-            Log.Information("Allocating {Count} slot(s)", N);
-            AgentResult<SlotsResponse> allocResult = await client.AllocateSlotsAsync(N, ct);
-
-            if (allocResult.IsUnreachable)
-            {
-                Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
-                return ExitCodes.AgentUnreachable;
-            }
-            if (!allocResult.IsSuccess)
-            {
-                Log.Error("Allocation failed — {ErrorCode}: {ErrorMessage}", allocResult.ErrorCode, allocResult.ErrorMessage);
-                return ExitCodes.AgentError;
-            }
-
-            Dictionary<int, SlotDto> slotById = [];
-            foreach (SlotDto s in allocResult.Value!.Slots)
-                slotById[s.Id] = s;
-
-            // Phase A — ensure each target slot is up (start if Allocated, reuse if already Running/Connected)
-            List<(SlotDto Slot, MonitorInfo? Monitor)> upSlots = [];
-            for (int id = 0; id < N; id++)
-            {
-                if (!slotById.TryGetValue(id, out SlotDto? slot))
-                {
-                    Log.Warning("Slot {Id} missing from allocate response — skipping", id);
-                    continue;
-                }
-
-                monitorById.TryGetValue(targetMonitorIds[id], out MonitorInfo? monitor);
-
-                if (slot.Status == "Allocated")
-                {
-                    AgentResult<bool> startResult = await client.StartSlotAsync(id, ct);
-                    if (startResult.IsUnreachable)
-                    {
-                        Log.Warning("Agent unreachable while starting slot {Id} — skipping", id);
-                        continue;
-                    }
-                    if (!startResult.IsSuccess)
-                    {
-                        Log.Warning("Slot {Id} failed to start — {ErrorCode}: {ErrorMessage}", id, startResult.ErrorCode, startResult.ErrorMessage);
-                        continue;
-                    }
-                    Log.Information("Slot {Id} started at {Host}:{Port}", id, slot.Host, slot.Port);
-                }
-                else
-                {
-                    Log.Debug("Slot {Id} already {Status} — reusing", id, slot.Status);
-                }
-
-                upSlots.Add((slot, monitor));
-            }
-
-            if (upSlots.Count == 0)
-            {
-                Log.Error("No slots came up — no monitors connected");
-                return ExitCodes.Generic;
-            }
-
-            // Phase B — launch Moonlight for each up slot that has no live local Moonlight
-            IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights =
-                ProcessCommandLine.FindMoonlightProcesses(executable);
-
-            int launched = 0;
-            int reused = 0;
-            int attempted = 0;
-            List<Task> positionTasks = new();
-            foreach ((SlotDto slot, MonitorInfo? monitor) in upSlots)
-            {
-                string hostPort = $"{slot.Host}:{slot.Port}";
-                IReadOnlyList<int> existing = ProcessCommandLine.FindMoonlightsForSlot(moonlights, hostPort, slot.Name);
-                if (existing.Count > 0)
-                {
-                    Log.Information("Slot {Id} already has Moonlight ({Pids}) — skipping launch",
-                        slot.Id, string.Join(", ", existing));
-                    reused++;
-                    continue;
-                }
-
-                attempted++;
-                if (TryLaunchMoonlight(executable, slot, monitor, defaultFlags, optionTokens, out int pid))
-                {
-                    Log.Information("Moonlight launched for slot {Id} at {Host}:{Port} (PID {Pid})", slot.Id, slot.Host, slot.Port, pid);
-                    launched++;
-                    if (OperatingSystem.IsWindows() && monitor is not null)
-                        positionTasks.Add(WindowPlacer.PositionWindowAsync(pid, monitor.X, monitor.Y, monitor.Width, monitor.Height));
-                }
-                else
-                {
-                    Log.Warning("Failed to launch Moonlight for slot {Id} at {Host}:{Port}", slot.Id, slot.Host, slot.Port);
-                }
-            }
-
-            if (positionTasks.Count > 0)
-                await Task.WhenAll(positionTasks);
-
-            if (attempted > 0 && launched == 0)
-            {
-                Log.Error("All Moonlight launches failed");
-                return ExitCodes.MoonlightFailed;
-            }
-
-            Log.Information("Connect complete — {Up} slot(s) up ({Launched} launched, {Reused} already running)",
-                upSlots.Count, launched, reused);
-            return ExitCodes.Success;
+            Log.Information("Connecting {Count} monitor(s) as session {SessionId}", targetMonitors.Count, sessionId);
+            return await SessionDaemon.RunAsync(config, agentUrl, token, sessionId, targetMonitors, optionTokens, hookReferences, ct);
         });
 
         return command;
     }
 
-    internal static int ComputeAvailableCapacity(IReadOnlyList<SlotDto> slots, int maxSlots)
+    // Returns the ordered per-position monitor list (null = requested id not found locally),
+    // or null if the input is invalid (empty selection / duplicate id).
+    private static IReadOnlyList<MonitorInfo?>? ResolveTargetMonitors(string? monitorsStr)
     {
-        int free = 0;
-        foreach (SlotDto s in slots)
+        IReadOnlyList<MonitorInfo> allMonitors = MonitorEnumerator.Enumerate();
+        Dictionary<int, MonitorInfo> monitorById = [];
+        foreach (MonitorInfo monitor in allMonitors)
         {
-            if (s.Status != "Connected")
-                free++;
+            monitorById[monitor.Id] = monitor;
         }
-        return free + (maxSlots - slots.Count);
-    }
 
-    private static bool TryLaunchMoonlight(
-        string executable, SlotDto slot, MonitorInfo? monitor,
-        string[] defaultFlags, string[] optionTokens, out int pid)
-    {
-        pid = 0;
-        try
+        List<int> targetIds = [];
+        if (monitorsStr is null)
         {
-            ProcessStartInfo psi = new()
+            if (allMonitors.Count == 0)
             {
-                FileName = executable,
-                UseShellExecute = false,
-                CreateNoWindow = false
-            };
-            psi.ArgumentList.Add("stream");
-            psi.ArgumentList.Add($"{slot.Host}:{slot.Port}");
-            psi.ArgumentList.Add("Desktop");
-
-            foreach (string flag in defaultFlags)
-                psi.ArgumentList.Add(flag);
-
-            // Per-monitor resolution overrides the config default (Moonlight uses the last value)
-            if (monitor is not null)
-            {
-                psi.ArgumentList.Add("--resolution");
-                psi.ArgumentList.Add($"{monitor.Width}x{monitor.Height}");
+                Log.Error("Monitor detection failed. Use --monitors <list> to connect manually.");
+                return null;
             }
 
-            // CLI --options win over everything else (appended last)
-            foreach (string token in optionTokens)
-                psi.ArgumentList.Add(token);
-
-            Log.Debug("Launching: {Executable} {Args}", executable, string.Join(" ", psi.ArgumentList));
-            Process? process = Process.Start(psi);
-            if (process is null)
-                return false;
-
-            pid = process.Id;
-            return true;
+            foreach (MonitorInfo monitor in allMonitors)
+            {
+                targetIds.Add(monitor.Id);
+            }
         }
-        catch (Exception ex)
+        else if (!ParseMonitorList(monitorsStr, monitorById, allMonitors.Count > 0, targetIds))
         {
-            Log.Debug("Moonlight launch exception: {Reason}", ex.Message);
+            return null;
+        }
+
+        List<MonitorInfo?> targets = [];
+        foreach (int id in targetIds)
+        {
+            targets.Add(monitorById.GetValueOrDefault(id));
+        }
+
+        return targets;
+    }
+
+    private static bool ParseMonitorList(string monitorsStr, Dictionary<int, MonitorInfo> monitorById, bool canValidate, List<int> targetIds)
+    {
+        HashSet<int> seen = [];
+        foreach (string part in monitorsStr.Split(','))
+        {
+            string trimmed = part.Trim();
+            if (!int.TryParse(trimmed, out int id))
+            {
+                Log.Warning("Skipping invalid monitor ID '{Id}'", trimmed);
+                continue;
+            }
+            if (!seen.Add(id))
+            {
+                Log.Error("Duplicate monitor ID {Id} in --monitors list", id);
+                return false;
+            }
+            if (canValidate && !monitorById.ContainsKey(id))
+            {
+                Log.Warning("Monitor {Id} not found on this machine — skipping", id);
+                continue;
+            }
+            targetIds.Add(id);
+        }
+
+        if (targetIds.Count == 0)
+        {
+            Log.Error("No valid monitor IDs in --monitors list");
             return false;
         }
+
+        return true;
+    }
+
+    private static IReadOnlyList<HookFileRef> BuildHookReferences(ClientConfig config, string[] hookPaths)
+    {
+        List<HookFileRef> references = [];
+        if (config.Hooks is not null)
+        {
+            foreach (ClientHookEntry entry in config.Hooks)
+            {
+                if (!string.IsNullOrWhiteSpace(entry.Path))
+                {
+                    references.Add(new HookFileRef { Path = entry.Path, Active = entry.Active ?? true });
+                }
+            }
+        }
+
+        // --hook flags add on top of the config list.
+        foreach (string path in hookPaths)
+        {
+            references.Add(new HookFileRef { Path = path, Active = true });
+        }
+
+        return references;
     }
 }

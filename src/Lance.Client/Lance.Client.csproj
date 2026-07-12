@@ -15,10 +15,12 @@
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Sinks.Console" />
     <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Lance.Shared\Lance.Shared.csproj" />
+    <ProjectReference Include="..\Lance.Hooks\Lance.Hooks.csproj" />
   </ItemGroup>
 
   <ItemGroup>

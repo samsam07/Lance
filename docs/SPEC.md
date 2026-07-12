@@ -426,8 +426,10 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
   (omitted `active` defaults to true), and a
   `sessions: { "provisionGraceSeconds": 30, "probePollSeconds": 1, "recordDir": "…" }`
   block (defaults shown; `recordDir` defaults to `%ProgramData%\Lance\sessions`).
-- **Client `lance.json`** (Slice 6.6): `hooks: [{ "active": true, "path": "…" }]`, plus
-  repeatable `--hook <path>` additive over the config list.
+- **Client `lance.json`** (implemented): `hooks: [{ "active": true, "path": "…" }]`
+  (omitted `active` defaults to true), plus repeatable `--hook <path>` additive over the
+  config list. `lance connect` is now a foreground daemon (blocks until the session ends)
+  and accepts `--session-id`.
 
 ## Build / project setup
 

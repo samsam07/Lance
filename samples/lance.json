@@ -22,6 +22,9 @@
   "ui": {
     "color": true
   },
+  "hooks": [
+    { "active": false, "path": "hooks\\vox.json" }
+  ],
   "logging": {
     "level": "Information",
     "filePath": null

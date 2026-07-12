@@ -311,9 +311,13 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      record's slots: any connected → re-adopt (Connected); all idle → replay the
      snapshotted teardown (`source=reconcile`) and delete the record. Point-in-time
      probe (no grace); Apollo is never stopped.
-   - **6.6 — Client: foreground daemon connect.** Blocking; Job Object (Win) /
-     tree-kill (Linux); degraded-launch policy; SIGHUP/Ctrl-C teardown;
-     `session_started`/`session_ended` client hooks.
+   - **6.6 — Client: foreground daemon connect.** ✓ **Done.** `lance connect` blocks
+     until the session ends: `POST /sessions` handshake, launch one Moonlight per slot
+     in a kill-on-close Job Object (Win) / tree-kill (Linux), degraded-launch policy,
+     `session_started`/`session_ended` client hooks, block watching streams, Ctrl-C /
+     last-exit teardown. `--session-id` + repeatable `--hook`. Clean-disconnect ping and
+     explicit console-close/SIGHUP hook-running deferred to 6.7 (Job Object is the hard-
+     death safety net meanwhile).
    - **6.7 — Client: disconnect + clean-disconnect ping.** Session-based
      (`--session-id`, agent fast-path + `host:port` fallback); `--keep-running`
      (default) / `--purge`; `DELETE /sessions/{id}`.
