@@ -24,7 +24,7 @@ internal static class MonitorsCommand
             IAnsiConsole console = CommandHelpers.MakeConsole(noColor);
 
             Table table = new Table()
-                .Border(TableBorder.Rounded)
+                .Border(TableBorder.Minimal)
                 .AddColumn(new TableColumn("ID").RightAligned())
                 .AddColumn("Name")
                 .AddColumn(new TableColumn("Resolution").RightAligned())

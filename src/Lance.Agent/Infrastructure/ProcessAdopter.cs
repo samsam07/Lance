@@ -111,7 +111,7 @@ internal static class ProcessAdopter
                     ConfigName = Path.GetFileName(configPath)
                 });
                 logger.LogInformation(
-                    "Adopted standard slot {SlotId} (PID {Pid}, port {Port}, config {ConfigName})",
+                    "Adopted slot {SlotId} — Apollo PID {Pid} on port {Port} ({ConfigName})",
                     slotId, pid, port, Path.GetFileName(configPath));
             }
         }
@@ -130,7 +130,7 @@ internal static class ProcessAdopter
                     ConfigName = config.RemoteServer.TemplateConfigName
                 });
                 logger.LogInformation(
-                    "Adopted template slot 0 (PID {Pid}, port {Port}, config {ConfigName})",
+                    "Adopted slot 0 — Apollo PID {Pid} on port {Port} ({ConfigName})",
                     pid, port, config.RemoteServer.TemplateConfigName);
             }
         }
@@ -147,8 +147,8 @@ internal static class ProcessAdopter
                 ConfigName = Path.GetFileName(configPath)
             });
             logger.LogInformation(
-                "Adopted non-standard slot {SlotId} (PID {Pid}, config {ConfigName})",
-                adoptedId, pid, Path.GetFileName(configPath));
+                "Adopted slot {SlotId} — Apollo PID {Pid} (unrecognized config)",
+                adoptedId, pid);
         }
     }
 

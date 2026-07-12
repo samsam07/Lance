@@ -23,21 +23,12 @@ internal static class Program
         {
             string configPath = Path.Combine(AppContext.BaseDirectory, AgentConfigLoader.FileName);
             AgentConfig config = AgentConfigLoader.Load();
-            if (File.Exists(configPath))
-                Log.Information("Config loaded from {ConfigPath}", configPath);
-            else
-                Log.Warning("Config file not found at {ConfigPath} — running with defaults", configPath);
 
             AdminGuard.RequireElevation();
 
             LogEventLevel level = Enum.TryParse<LogEventLevel>(config.Logging.Level, ignoreCase: true, out LogEventLevel parsed)
                 ? parsed
                 : LogEventLevel.Information;
-
-            if (!string.IsNullOrEmpty(config.Auth?.Token))
-                Log.Information("Bearer token authentication is enabled");
-            else
-                Log.Warning("No auth token configured — agent API is open to all callers");
 
             DateTimeOffset startedAt = DateTimeOffset.UtcNow;
             WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
@@ -67,6 +58,8 @@ internal static class Program
                         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
                         rollingInterval: RollingInterval.Day,
                         retainedFileCountLimit: config.Logging.RetainDays);
+
+                ApplyFrameworkLogPolicy(loggerConfig, config.Logging.FrameworkLevel);
             });
 
             builder.Services.ConfigureHttpJsonOptions(opts =>
@@ -97,6 +90,20 @@ internal static class Program
 
             AgentConfigValidator.Validate(config);
 
+            // Startup narrative: emitted after Build() so it flows through the fully
+            // configured logger (file sink included), not the console-only bootstrap.
+            Log.Information("Lance agent {Version} starting", GetVersion());
+
+            if (File.Exists(configPath))
+                Log.Information("Config loaded from {ConfigPath}", configPath);
+            else
+                Log.Warning("Config file not found at {ConfigPath} — running with defaults", configPath);
+
+            if (!string.IsNullOrEmpty(config.Auth?.Token))
+                Log.Information("Bearer token authentication enabled");
+            else
+                Log.Warning("No auth token configured — agent API is open to all callers");
+
             IProcessTracker tracker = app.Services.GetRequiredService<IProcessTracker>();
             ISlotLifecycle lifecycle = app.Services.GetRequiredService<ISlotLifecycle>();
 
@@ -105,17 +112,11 @@ internal static class Program
                 .CreateLogger(typeof(ProcessAdopter).FullName!);
             ProcessAdopter.Adopt(config, tracker, adoptLogger);
 
-            int standardAdopted = 0;
-            int nonStandardAdopted = 0;
-            foreach ((int slotId, _) in tracker.GetAll())
-            {
-                if (slotId >= 1000)
-                    nonStandardAdopted++;
-                else
-                    standardAdopted++;
-            }
-            Log.Information("Adoption complete: {Standard} standard slot(s), {NonStandard} non-standard slot(s) adopted",
-                standardAdopted, nonStandardAdopted);
+            int adoptedCount = tracker.GetAll().Count;
+            if (adoptedCount == 0)
+                Log.Information("No running Apollo instances to adopt");
+            else
+                Log.Information("Adoption complete — {Count} running Apollo instance(s) adopted", adoptedCount);
 
             // Crash recovery: replay orphaned session teardowns / re-adopt live sessions
             // BEFORE the listener opens, so a fresh connect isn't clobbered by a replay.
@@ -135,6 +136,11 @@ internal static class Program
                 Task.WhenAll(tasks).GetAwaiter().GetResult();
             });
 
+            // Lance states its own bind address once the listener is up — the framework's
+            // "Now listening on" banner is a Microsoft.* source and is filtered by default.
+            app.Lifetime.ApplicationStarted.Register(() =>
+                Log.Information("Listening on https://{Host}:{Port}", config.Listen.Host, config.Listen.Port));
+
             app.UseMiddleware<BearerTokenMiddleware>();
 
             if (level <= LogEventLevel.Debug)
@@ -147,7 +153,7 @@ internal static class Program
             app.MapSessionEndpoints();
 
             await app.RunAsync();
-            Log.Information("Lance agent stopped — graceful shutdown complete");
+            Log.Information("Lance agent stopped");
             return 0;
         }
         catch (Exception ex)
@@ -159,5 +165,28 @@ internal static class Program
         {
             await Log.CloseAndFlushAsync();
         }
+    }
+
+    // Framework (Microsoft.*) log sources feel foreign in a cross-platform tool. By
+    // default ("off"/"none") they are dropped entirely; a real level re-admits them at
+    // that floor for the rare case of debugging the web/TLS stack itself.
+    private static void ApplyFrameworkLogPolicy(LoggerConfiguration loggerConfig, string frameworkLevel)
+    {
+        if (Enum.TryParse(frameworkLevel, ignoreCase: true, out LogEventLevel level))
+        {
+            loggerConfig.MinimumLevel.Override("Microsoft", level);
+            return;
+        }
+
+        loggerConfig.Filter.ByExcluding(logEvent =>
+            logEvent.Properties.TryGetValue("SourceContext", out LogEventPropertyValue? source)
+            && source is ScalarValue { Value: string context }
+            && context.StartsWith("Microsoft", StringComparison.Ordinal));
+    }
+
+    private static string GetVersion()
+    {
+        Version? version = typeof(Program).Assembly.GetName().Version;
+        return version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 }

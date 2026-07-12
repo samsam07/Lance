@@ -74,6 +74,13 @@ public sealed record AuthConfig
 public sealed record AgentLoggingConfig
 {
     public string Level { get; init; } = "Information";
+
+    // Minimum level for framework (Microsoft.*) log sources. "off"/"none" (default)
+    // drops them entirely so the agent's output reads as its own domain narrative
+    // rather than the .NET/Kestrel stack; a real level ("Warning", "Debug", …)
+    // re-admits framework logs at that floor for web-stack debugging.
+    public string FrameworkLevel { get; init; } = "off";
+
     public string FilePath { get; init; } = "lance-agent.log";
     public int RetainDays { get; init; } = 7;
 }

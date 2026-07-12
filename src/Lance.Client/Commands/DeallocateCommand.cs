@@ -37,7 +37,7 @@ internal static class DeallocateCommand
                 return ExitCodes.ConfigResolutionFailed;
             }
 
-            Log.Information("Targeting agent at {AgentUrl}", agentUrl);
+            Log.Debug("Targeting agent at {AgentUrl}", agentUrl);
 
             int timeout = config?.Agent?.TimeoutSeconds ?? 30;
             string? token = CommandHelpers.ResolveToken(pr, globals, config);

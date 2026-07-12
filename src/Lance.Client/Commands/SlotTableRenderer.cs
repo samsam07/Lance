@@ -8,7 +8,7 @@ internal static class SlotTableRenderer
     public static void Render(IAnsiConsole console, SlotDto[] slots)
     {
         Table table = new Table()
-            .Border(TableBorder.Rounded)
+            .Border(TableBorder.Minimal)
             .AddColumn(new TableColumn("ID").RightAligned())
             .AddColumn("Name")
             .AddColumn("Status")

@@ -32,7 +32,7 @@ internal sealed class SlotAllocator : ISlotAllocator
 
     public AllocateResult Allocate(int count)
     {
-        _logger.LogInformation("Allocating to count {Count}", count);
+        _logger.LogInformation("Allocating slot pool to {Count} slot(s)", count);
 
         if (count < 1)
         {

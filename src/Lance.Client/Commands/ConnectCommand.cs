@@ -49,7 +49,7 @@ internal static class ConnectCommand
                 return ExitCodes.ConfigResolutionFailed;
             }
 
-            Log.Information("Targeting agent at {AgentUrl}", agentUrl);
+            Log.Debug("Targeting agent at {AgentUrl}", agentUrl);
 
             IReadOnlyList<MonitorInfo?>? targetMonitors = ResolveTargetMonitors(pr.GetValue(monitorsOption));
             if (targetMonitors is null)

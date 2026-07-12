@@ -22,7 +22,7 @@ internal static class SlotsCommand
                 return ExitCodes.ConfigResolutionFailed;
             }
 
-            Log.Information("Targeting agent at {AgentUrl}", agentUrl);
+            Log.Debug("Targeting agent at {AgentUrl}", agentUrl);
 
             bool noColor = pr.GetValue(globals.NoColorOption);
             int timeout = config?.Agent?.TimeoutSeconds ?? 30;

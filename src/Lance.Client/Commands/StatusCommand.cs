@@ -24,7 +24,7 @@ internal static class StatusCommand
                 return ExitCodes.ConfigResolutionFailed;
             }
 
-            Log.Information("Targeting agent at {AgentUrl}", agentUrl);
+            Log.Debug("Targeting agent at {AgentUrl}", agentUrl);
 
             bool noColor = pr.GetValue(globals.NoColorOption);
             int timeout = config?.Agent?.TimeoutSeconds ?? 30;
@@ -76,7 +76,7 @@ internal static class StatusCommand
         IAnsiConsole console, SlotDto[] slots, Dictionary<int, IReadOnlyList<int>> slotToMoonlightPids)
     {
         Table table = new Table()
-            .Border(TableBorder.Rounded)
+            .Border(TableBorder.Minimal)
             .AddColumn(new TableColumn("ID").RightAligned())
             .AddColumn("Name")
             .AddColumn("Status")
