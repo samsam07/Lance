@@ -23,21 +23,36 @@ public sealed class HookLoader
         {
             if (!reference.Active)
             {
+                _logger.LogDebug("Skipping inactive hook file {Path}.", reference.Path);
                 continue;
             }
 
-            HookFile? file = TryParse(reference.Path);
+            string path = ResolvePath(reference);
+            HookFile? file = TryParse(path);
             if (file is null)
             {
                 continue;
             }
 
-            string directory = Path.GetDirectoryName(Path.GetFullPath(reference.Path)) ?? ".";
+            string directory = Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
             loaded.Add(new LoadedHook { File = file, Directory = directory, LoadOrder = loadOrder });
             loadOrder++;
         }
 
         return loaded;
+    }
+
+    // A relative hook path is resolved against the config file's directory (BaseDirectory)
+    // so it is found beside that config, not against the process's current directory. An
+    // absolute path, or a reference with no BaseDirectory (a CLI --hook arg), is used as-is.
+    private static string ResolvePath(HookFileRef reference)
+    {
+        if (reference.BaseDirectory is null || Path.IsPathRooted(reference.Path))
+        {
+            return reference.Path;
+        }
+
+        return Path.Combine(reference.BaseDirectory, reference.Path);
     }
 
     private HookFile? TryParse(string path)

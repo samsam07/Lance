@@ -26,11 +26,12 @@ internal static class Program
             noColorOption,
         };
 
-        // config is loaded after parsing; commands close over this variable and
-        // read its value during InvokeAsync — after it has been set below.
+        // config is loaded after parsing; commands close over these variables and
+        // read their values during InvokeAsync — after they have been set below.
         ClientConfig? config = null;
+        string? configDirectory = null;
 
-        GlobalOptions globals = new(agentOption, tokenOption, noColorOption, () => config);
+        GlobalOptions globals = new(agentOption, tokenOption, noColorOption, () => config, () => configDirectory);
 
         root.Add(SlotsCommand.Build(globals));
         root.Add(StatusCommand.Build(globals));
@@ -57,6 +58,12 @@ internal static class Program
             Console.Error.WriteLine($"Error loading config: {ex.Message}");
             return ExitCodes.Generic;
         }
+
+        // Relative hook paths in lance.json resolve against the config file's directory
+        // (explicit --config path, or the binary-adjacent default location).
+        configDirectory = configPath is not null
+            ? Path.GetDirectoryName(Path.GetFullPath(configPath))
+            : AppContext.BaseDirectory;
 
         bool verbose = parseResult.GetValue(verboseOption);
         bool noColor = parseResult.GetValue(noColorOption);

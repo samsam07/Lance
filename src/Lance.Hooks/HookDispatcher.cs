@@ -60,9 +60,18 @@ public sealed class HookDispatcher
                 Environment = env
             };
 
+            _logger.LogInformation("Running hook command: {Command} {Args}", command.Command, string.Join(" ", command.Args));
+
             if (command.Async)
             {
-                _runner.Start(spec);
+                string? launchError = _runner.Start(spec);
+                if (launchError is not null)
+                {
+                    // Async commands are fire-and-forget, so a launch failure is reported
+                    // but never terminates the chain (there is no exit code to sequence on).
+                    _logger.LogWarning("Hook command '{Command}' could not be started: {Reason}", command.Command, launchError);
+                }
+
                 continue;
             }
 
@@ -82,7 +91,11 @@ public sealed class HookDispatcher
 
     private void LogFailure(ResolvedCommand command, HookRunResult result)
     {
-        if (result.TimedOut)
+        if (result.LaunchError is not null)
+        {
+            _logger.LogWarning("Hook command '{Command}' could not be started: {Reason}", command.Command, result.LaunchError);
+        }
+        else if (result.TimedOut)
         {
             _logger.LogWarning("Hook command '{Command}' did not finish within {Timeout}s; moving on.", command.Command, command.TimeoutSeconds);
         }

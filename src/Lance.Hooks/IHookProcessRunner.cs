@@ -10,8 +10,9 @@ public interface IHookProcessRunner
     Task<HookRunResult> RunAndWaitAsync(HookProcessSpec spec, TimeSpan timeout, CancellationToken cancellationToken);
 
     // Asynchronous command (`async: true`): start it and do not wait. Lance never
-    // supervises the spawned process afterwards.
-    void Start(HookProcessSpec spec);
+    // supervises the spawned process afterwards. Returns null on a successful launch,
+    // or a description of why the process could not be started.
+    string? Start(HookProcessSpec spec);
 }
 
 public sealed record HookProcessSpec
@@ -27,5 +28,9 @@ public sealed record HookRunResult
     public required bool TimedOut { get; init; }
     public int ExitCode { get; init; }
 
-    public bool IsSuccess => !TimedOut && ExitCode == 0;
+    // Non-null when the process could not be started at all (e.g. the executable does
+    // not exist) — distinct from a process that ran and exited non-zero.
+    public string? LaunchError { get; init; }
+
+    public bool IsSuccess => LaunchError is null && !TimedOut && ExitCode == 0;
 }

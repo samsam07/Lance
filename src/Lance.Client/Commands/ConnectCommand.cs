@@ -65,7 +65,7 @@ internal static class ConnectCommand
                 ? []
                 : optionsStr.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            IReadOnlyList<HookFileRef> hookReferences = BuildHookReferences(config, pr.GetValue(hookOption) ?? []);
+            IReadOnlyList<HookFileRef> hookReferences = BuildHookReferences(config, globals.GetConfigDirectory(), pr.GetValue(hookOption) ?? []);
 
             Log.Information("Connecting {Count} monitor(s) as session {SessionId}", targetMonitors.Count, sessionId);
             return await SessionDaemon.RunAsync(config, agentUrl, token, sessionId, targetMonitors, optionTokens, hookReferences, ct);
@@ -146,7 +146,7 @@ internal static class ConnectCommand
         return true;
     }
 
-    private static IReadOnlyList<HookFileRef> BuildHookReferences(ClientConfig config, string[] hookPaths)
+    private static IReadOnlyList<HookFileRef> BuildHookReferences(ClientConfig config, string? configDirectory, string[] hookPaths)
     {
         List<HookFileRef> references = [];
         if (config.Hooks is not null)
@@ -155,12 +155,14 @@ internal static class ConnectCommand
             {
                 if (!string.IsNullOrWhiteSpace(entry.Path))
                 {
-                    references.Add(new HookFileRef { Path = entry.Path, Active = entry.Active ?? true });
+                    // Config hook paths resolve against the config file's directory.
+                    references.Add(new HookFileRef { Path = entry.Path, Active = entry.Active ?? true, BaseDirectory = configDirectory });
                 }
             }
         }
 
-        // --hook flags add on top of the config list.
+        // --hook flags add on top of the config list; a CLI path stays relative to the
+        // current directory (no BaseDirectory), matching normal shell expectations.
         foreach (string path in hookPaths)
         {
             references.Add(new HookFileRef { Path = path, Active = true });

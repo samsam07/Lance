@@ -45,6 +45,21 @@ public sealed class HookLoaderTests
     }
 
     [Fact]
+    public void Load_RelativePath_ResolvesAgainstBaseDirectory()
+    {
+        using HooksTempDir dir = new();
+        File.WriteAllText(Path.Combine(dir.Path, "vox.json"), """{ "name": "vox", "events": {} }""");
+
+        HookLoader loader = new(NullLogger<HookLoader>.Instance);
+        // Relative path found via BaseDirectory, not the process's current directory.
+        IReadOnlyList<LoadedHook> loaded = loader.Load([new HookFileRef { Path = "vox.json", BaseDirectory = dir.Path }]);
+
+        Assert.Single(loaded);
+        Assert.Equal("vox", loaded[0].File.Name);
+        Assert.Equal(Path.GetFullPath(dir.Path), Path.GetFullPath(loaded[0].Directory));
+    }
+
+    [Fact]
     public void Load_SkipsUnreadableFile()
     {
         using HooksTempDir dir = new();

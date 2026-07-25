@@ -6,6 +6,12 @@ public sealed record HookFileRef
 {
     public required string Path { get; init; }
     public bool Active { get; init; } = true;
+
+    // Directory a relative Path is resolved against — the config file's own directory,
+    // so `hooks/foo.json` in a config is found beside that config regardless of the
+    // process's current directory. Null → Path is used as-is (already absolute, or a
+    // CLI `--hook` arg, which stays relative to the current directory).
+    public string? BaseDirectory { get; init; }
 }
 
 // A successfully loaded hook file plus where it came from: the containing directory

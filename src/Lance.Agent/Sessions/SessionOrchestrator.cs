@@ -332,7 +332,8 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
         {
             if (!string.IsNullOrWhiteSpace(entry.Path))
             {
-                references.Add(new HookFileRef { Path = entry.Path, Active = entry.Active ?? true });
+                // Agent config lives beside the binary, so relative hook paths resolve there.
+                references.Add(new HookFileRef { Path = entry.Path, Active = entry.Active ?? true, BaseDirectory = AppContext.BaseDirectory });
             }
         }
 

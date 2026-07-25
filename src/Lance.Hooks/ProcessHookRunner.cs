@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 
 namespace Lance.Hooks;
@@ -10,28 +11,48 @@ public sealed class ProcessHookRunner : IHookProcessRunner
 {
     public async Task<HookRunResult> RunAndWaitAsync(HookProcessSpec spec, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        using Process process = StartProcess(spec);
-
-        using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(timeout);
-
+        Process process;
         try
         {
-            await process.WaitForExitAsync(timeoutSource.Token);
-            return new HookRunResult { TimedOut = false, ExitCode = process.ExitCode };
+            process = StartProcess(spec);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            // Timed out: stop waiting but leave the process running — its lifecycle is
-            // the tool's, not Lance's. The engine applies the command's onError policy.
-            return new HookRunResult { TimedOut = true };
+            // The process could not be launched at all (e.g. the executable is missing).
+            // A hook command's failure must never take down the caller, so report it.
+            return new HookRunResult { TimedOut = false, LaunchError = ex.Message };
+        }
+
+        using (process)
+        using (CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            timeoutSource.CancelAfter(timeout);
+            try
+            {
+                await process.WaitForExitAsync(timeoutSource.Token);
+                return new HookRunResult { TimedOut = false, ExitCode = process.ExitCode };
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Timed out: stop waiting but leave the process running — its lifecycle is
+                // the tool's, not Lance's. The engine applies the command's onError policy.
+                return new HookRunResult { TimedOut = true };
+            }
         }
     }
 
-    public void Start(HookProcessSpec spec)
+    public string? Start(HookProcessSpec spec)
     {
-        // Fire-and-forget: releasing our handle does not stop the process.
-        using Process process = StartProcess(spec);
+        try
+        {
+            // Fire-and-forget: releasing our handle does not stop the process.
+            using Process process = StartProcess(spec);
+            return null;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            return ex.Message;
+        }
     }
 
     private static Process StartProcess(HookProcessSpec spec)

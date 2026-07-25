@@ -7,5 +7,6 @@ internal sealed record GlobalOptions(
     Option<string?> AgentOption,
     Option<string?> TokenOption,
     Option<bool> NoColorOption,
-    Func<ClientConfig?> GetConfig
+    Func<ClientConfig?> GetConfig,
+    Func<string?> GetConfigDirectory
 );

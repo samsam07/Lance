@@ -102,6 +102,20 @@ public sealed class HookDispatcherTests
     }
 
     [Fact]
+    public async Task Dispatch_LaunchFailure_IsTreatedAsFailure_AndTerminates()
+    {
+        FakeHookProcessRunner runner = new(launchFail: ["x:a1"]);
+        HookDispatcher dispatcher = new(runner, NullLogger<HookDispatcher>.Instance);
+
+        LoadedHook file = Hook(1000, 0, Cmd("x", "a1"), Cmd("x", "a2"));
+
+        await dispatcher.DispatchAsync(LanceEvents.SessionStarted, [file], Env(), TestContext.Current.CancellationToken);
+
+        // A command that never launched is a failure: with onError=terminate the chain stops.
+        Assert.Equal(["x:a1"], runner.Ran);
+    }
+
+    [Fact]
     public void Resolve_SubstitutesArgs_AndResolvesWorkingDir()
     {
         HookDispatcher dispatcher = new(new FakeHookProcessRunner(), NullLogger<HookDispatcher>.Instance);
@@ -150,20 +164,27 @@ file sealed class FakeHookProcessRunner : IHookProcessRunner
 {
     private readonly HashSet<string> _fail;
     private readonly HashSet<string> _timeout;
+    private readonly HashSet<string> _launchFail;
 
     public List<string> Ran { get; } = [];
     public List<string> Started { get; } = [];
 
-    public FakeHookProcessRunner(IEnumerable<string>? fail = null, IEnumerable<string>? timeout = null)
+    public FakeHookProcessRunner(IEnumerable<string>? fail = null, IEnumerable<string>? timeout = null, IEnumerable<string>? launchFail = null)
     {
         _fail = new HashSet<string>(fail ?? []);
         _timeout = new HashSet<string>(timeout ?? []);
+        _launchFail = new HashSet<string>(launchFail ?? []);
     }
 
     public Task<HookRunResult> RunAndWaitAsync(HookProcessSpec spec, TimeSpan timeout, CancellationToken cancellationToken)
     {
         string key = Key(spec);
         Ran.Add(key);
+
+        if (_launchFail.Contains(key))
+        {
+            return Task.FromResult(new HookRunResult { TimedOut = false, LaunchError = "executable not found" });
+        }
 
         if (_timeout.Contains(key))
         {
@@ -174,9 +195,10 @@ file sealed class FakeHookProcessRunner : IHookProcessRunner
         return Task.FromResult(new HookRunResult { TimedOut = false, ExitCode = exitCode });
     }
 
-    public void Start(HookProcessSpec spec)
+    public string? Start(HookProcessSpec spec)
     {
         Started.Add(Key(spec));
+        return _launchFail.Contains(Key(spec)) ? "executable not found" : null;
     }
 
     private static string Key(HookProcessSpec spec)

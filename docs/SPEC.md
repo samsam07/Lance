@@ -439,6 +439,10 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
   (omitted `active` defaults to true), plus repeatable `--hook <path>` additive over the
   config list. `lance connect` is now a foreground daemon (blocks until the session ends)
   and accepts `--session-id`.
+- **Hook path resolution:** a relative `path` in a config `hooks` entry resolves against
+  that **config file's directory** (so `hooks/foo.json` is found beside the config
+  regardless of the working directory). A CLI `--hook <path>` stays relative to the
+  current directory. Inactive (`active: false`) entries are skipped and logged at Debug.
 
 ## Build / project setup
 
