@@ -172,9 +172,10 @@ required state · 7 config resolution failed.
 `remoteServer{installDir,configDir,executable,templateConfigName,startupTimeoutSeconds}`,
 `slots{maxCount,portStep,stopTimeoutSeconds,namePrefix,templateName,configNamePattern}`,
 `logging{level,frameworkLevel,filePath,retainDays}`.
-`logging.frameworkLevel` (default `"off"`): minimum level for framework
-(`Microsoft.*`) log sources — `"off"`/`"none"` drops them entirely; a real level
-(`"Warning"`, `"Debug"`, …) re-admits them at that floor.
+`logging.frameworkLevel` (default `"Warning"`): minimum level for framework
+(`Microsoft.*`) log sources — `"Warning"` keeps genuine faults visible while dropping
+the Info/Debug request/connection noise; a lower level (`"Debug"`/`"Information"`)
+opens the web stack; `"off"`/`"none"` drops framework logs entirely.
 
 **Client — `lance.json`**: `agent{url,token,timeoutSeconds}`,
 `remoteClient{executable,defaultFlags}`, `ui{color}`, `logging{level,filePath}`.
@@ -461,10 +462,11 @@ Format and per-level detail: **AI to propose, owner approves.** (Baseline: agent
 = console + rolling daily file; client = stderr in Phase 1.)
 
 Both sides log their own domain narrative, not their implementation stack. The agent
-suppresses all framework (`Microsoft.*`) log sources by default (`logging.frameworkLevel
-= "off"`) — Kestrel connection/TLS internals, routing, the hosting banner — and states
-the useful facts itself (`Lance agent <ver> starting`, adoption, `Listening on <url>`).
-The client emits no framework logs (bare CLI). `frameworkLevel` set to a real level is
-the escape hatch for debugging the web/TLS stack. Client console/status output uses
+quiets framework (`Microsoft.*`) log sources to `Warning` by default (`logging.frameworkLevel`)
+— dropping the Info/Debug Kestrel connection/TLS, routing, and hosting-banner noise while
+keeping genuine warnings/errors — and states the useful facts itself (`Lance agent <ver>
+starting`, adoption, `Listening on <url>`). The client emits no framework logs (bare CLI).
+Lower `frameworkLevel` to debug the web/TLS stack; `"off"`/`"none"` drops framework logs
+entirely. Client console/status output uses
 `Minimal`-bordered tables for genuinely tabular data (slots, status, monitors); single
 results are plain messages.

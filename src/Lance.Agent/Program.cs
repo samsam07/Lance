@@ -167,9 +167,11 @@ internal static class Program
         }
     }
 
-    // Framework (Microsoft.*) log sources feel foreign in a cross-platform tool. By
-    // default ("off"/"none") they are dropped entirely; a real level re-admits them at
-    // that floor for the rare case of debugging the web/TLS stack itself.
+    // Framework (Microsoft.*) log sources feel foreign in a cross-platform tool, but
+    // hiding them entirely also hides genuine faults. Default "Warning" keeps warnings
+    // and errors visible while dropping the Info/Debug request-and-connection noise; a
+    // lower level opens up the web/TLS stack, and "off"/"none" drops framework logs
+    // entirely.
     private static void ApplyFrameworkLogPolicy(LoggerConfiguration loggerConfig, string frameworkLevel)
     {
         if (Enum.TryParse(frameworkLevel, ignoreCase: true, out LogEventLevel level))

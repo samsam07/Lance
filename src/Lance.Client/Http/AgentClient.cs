@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -112,7 +113,7 @@ internal sealed class AgentClient : IDisposable
             Log.Debug("Response body: {Body}", body);
 
             if (!response.IsSuccessStatusCode)
-                return ParseError<T>(body);
+                return ParseError<T>(body, response.StatusCode);
 
             T value = JsonSerializer.Deserialize(body, typeInfo)
                 ?? throw new InvalidOperationException($"Null response body for {path}");
@@ -148,7 +149,7 @@ internal sealed class AgentClient : IDisposable
             Log.Debug("Response body: {Body}", responseBody);
 
             if (!response.IsSuccessStatusCode)
-                return ParseError<TResult>(responseBody);
+                return ParseError<TResult>(responseBody, response.StatusCode);
 
             TResult value = JsonSerializer.Deserialize(responseBody, resultTypeInfo)
                 ?? throw new InvalidOperationException($"Null response body for {path}");
@@ -178,7 +179,7 @@ internal sealed class AgentClient : IDisposable
 
             if (!response.IsSuccessStatusCode)
             {
-                return ParseError<bool>(responseBody);
+                return ParseError<bool>(responseBody, response.StatusCode);
             }
 
             return new AgentResult<bool> { IsSuccess = true, Value = true };
@@ -207,7 +208,7 @@ internal sealed class AgentClient : IDisposable
 
             if (!response.IsSuccessStatusCode)
             {
-                return ParseError<bool>(responseBody);
+                return ParseError<bool>(responseBody, response.StatusCode);
             }
 
             return new AgentResult<bool> { IsSuccess = true, Value = true };
@@ -224,15 +225,45 @@ internal sealed class AgentClient : IDisposable
         }
     }
 
-    private static AgentResult<T> ParseError<T>(string body)
+    // A non-success response usually carries a JSON ErrorResponse, but some failures
+    // (400 body-binding, 401 from a proxy, 500) come back empty or non-JSON. Fall back
+    // to the HTTP status so the caller always gets an actionable code, never a crash.
+    private static AgentResult<T> ParseError<T>(string body, HttpStatusCode statusCode)
     {
-        ErrorResponse? error = JsonSerializer.Deserialize(body, LanceSharedJsonContext.Default.ErrorResponse);
+        ErrorResponse? error = TryParseError(body);
         return new AgentResult<T>
         {
-            ErrorCode = error?.Error,
-            ErrorMessage = error?.Message
+            ErrorCode = error?.Error ?? $"http_{(int)statusCode}",
+            ErrorMessage = error?.Message ?? DescribeStatus(statusCode)
         };
     }
+
+    private static ErrorResponse? TryParseError(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize(body, LanceSharedJsonContext.Default.ErrorResponse);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string DescribeStatus(HttpStatusCode statusCode) => (int)statusCode switch
+    {
+        400 => "The agent rejected the request as malformed and returned no detail.",
+        401 => "The agent rejected the request as unauthorized — check the auth token.",
+        403 => "The agent refused the request (forbidden).",
+        404 => "The agent does not recognize this request (not found).",
+        >= 500 => "The agent hit an internal error. Check the agent log for details.",
+        _ => "The agent returned an error with no detail."
+    };
 
     public void Dispose()
     {
