@@ -119,13 +119,25 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
             return;
         }
 
-        if (_records.TryRemove(sessionId, out SessionRecord? record))
+        try
         {
-            await RunTeardownAsync(record, source, cancellationToken);
+            if (_records.TryRemove(sessionId, out SessionRecord? record))
+            {
+                await RunTeardownAsync(record, source, cancellationToken);
+            }
         }
-
-        _registry.Remove(sessionId);
-        _logger.LogInformation("Session {SessionId}: ended ({Source}); slots freed, Apollo left running.", sessionId, source);
+        catch (Exception ex)
+        {
+            // Teardown must never pin a slot: log the failure but still free the session
+            // in the finally. Any leftover record file is replayed by the reconciler at
+            // next startup.
+            _logger.LogWarning(ex, "Session {SessionId}: teardown did not complete cleanly; freeing it anyway.", sessionId);
+        }
+        finally
+        {
+            _registry.Remove(sessionId);
+            _logger.LogInformation("Session {SessionId}: ended ({Source}); slots freed, Apollo left running.", sessionId, source);
+        }
     }
 
     public SessionResponse? GetSession(string sessionId)

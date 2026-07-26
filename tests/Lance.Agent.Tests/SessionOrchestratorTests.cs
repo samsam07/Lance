@@ -108,7 +108,41 @@ public sealed class SessionOrchestratorTests
         Assert.False(File.Exists(Path.Combine(dir.Path, "abc.json")));
     }
 
-    private static SessionOrchestrator BuildOrchestrator(FakeSlots slots, string recordDir, out SessionRegistry registry)
+    [Fact]
+    public async Task EndSession_FreesSlotForReuse_NoNewAllocation()
+    {
+        using SessionTempDir dir = new();
+        FakeSlots slots = new();
+        slots.Seed(0, "Allocated", isTemplate: true);
+        SessionOrchestrator orchestrator = BuildOrchestrator(slots, dir.Path, out _);
+
+        SessionCreationResult first = await orchestrator.CreateSessionAsync("aaa", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
+        await orchestrator.EndSessionAsync("aaa", "ping", TestContext.Current.CancellationToken);
+        SessionCreationResult second = await orchestrator.CreateSessionAsync("bbb", 1, "10.0.0.3", "10.0.0.2", TestContext.Current.CancellationToken);
+
+        // The ended session freed slot 0, so the next connect reuses it — the pool must
+        // not grow a fresh slot while a freed one is available.
+        Assert.Equal(0, first.Slots[0].Id);
+        Assert.Equal(0, second.Slots[0].Id);
+        Assert.Single(slots.Scan());
+    }
+
+    [Fact]
+    public async Task EndSession_TeardownThrows_StillFreesSession()
+    {
+        using SessionTempDir dir = new();
+        FakeSlots slots = new();
+        slots.Seed(0, "Allocated", isTemplate: true);
+        SessionOrchestrator orchestrator = BuildOrchestrator(slots, dir.Path, out SessionRegistry registry, new ThrowingDeleteStore());
+        await orchestrator.CreateSessionAsync("abc", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
+
+        // A failing teardown must never pin the slot: the session is still freed.
+        await orchestrator.EndSessionAsync("abc", "ping", TestContext.Current.CancellationToken);
+
+        Assert.False(registry.TryGet("abc", out _));
+    }
+
+    private static SessionOrchestrator BuildOrchestrator(FakeSlots slots, string recordDir, out SessionRegistry registry, ISessionRecordStore? store = null)
     {
         AgentConfig config = new()
         {
@@ -116,11 +150,24 @@ public sealed class SessionOrchestratorTests
             Hooks = []
         };
         registry = new SessionRegistry();
-        FileSessionRecordStore store = new(config, NullLogger<FileSessionRecordStore>.Instance);
+        ISessionRecordStore recordStore = store ?? new FileSessionRecordStore(config, NullLogger<FileSessionRecordStore>.Instance);
         HookLoader loader = new(NullLogger<HookLoader>.Instance);
         HookDispatcher dispatcher = new(new ProcessHookRunner(), NullLogger<HookDispatcher>.Instance);
-        return new SessionOrchestrator(config, registry, store, slots, slots, slots, loader, dispatcher, NullLogger<SessionOrchestrator>.Instance);
+        return new SessionOrchestrator(config, registry, recordStore, slots, slots, slots, loader, dispatcher, NullLogger<SessionOrchestrator>.Instance);
     }
+}
+
+// A record store whose teardown delete always fails, to prove EndSession frees the
+// session even when teardown throws.
+internal sealed class ThrowingDeleteStore : ISessionRecordStore
+{
+    public Task SaveAsync(SessionRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<SessionRecord>> LoadAllAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<SessionRecord>>([]);
+
+    public Task DeleteAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        throw new IOException("delete failed");
 }
 
 // A fake pool backing the scanner, allocator, and lifecycle so the orchestrator's

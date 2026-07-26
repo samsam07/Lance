@@ -33,10 +33,12 @@ internal static class SessionEndpoints
     }
 
     // Clean-disconnect ping — the fast path. Idempotent: an unknown or already-ended
-    // session is a no-op. Probe-watch backstops it if it never arrives.
-    private static async Task<Ok> DeleteSession(string id, ISessionOrchestrator orchestrator, CancellationToken cancellationToken)
+    // session is a no-op. Probe-watch backstops it if it never arrives. Teardown runs
+    // detached from the request token: the client fires this ping as it exits, so tying
+    // teardown to the request would cut off the hooks (e.g. audio restore) mid-way.
+    private static async Task<Ok> DeleteSession(string id, ISessionOrchestrator orchestrator)
     {
-        await orchestrator.EndSessionAsync(id, "ping", cancellationToken);
+        await orchestrator.EndSessionAsync(id, "ping", CancellationToken.None);
         return TypedResults.Ok();
     }
 
