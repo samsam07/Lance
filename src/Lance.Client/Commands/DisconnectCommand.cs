@@ -22,7 +22,7 @@ internal static class DisconnectCommand
         };
         Option<bool> keepRunningOption = new("--keep-running")
         {
-            Description = "Leave Apollo running for a fast reconnect (default)"
+            Description = "Leave the session's Apollo running on the agent for a fast reconnect (default: stop it)"
         };
         Option<bool> purgeOption = new("--purge")
         {
@@ -47,6 +47,10 @@ internal static class DisconnectCommand
             {
                 Log.Warning("--keep-running is ignored when --purge is specified");
             }
+
+            // Default is to stop the session's slots (tear down the displays); --keep-running
+            // opts out for a fast reconnect. --purge always stops (then deallocates).
+            bool keepRunning = pr.GetValue(keepRunningOption) && !purge;
 
             string? sessionId = pr.GetValue(sessionIdOption);
             string[] hostPorts = pr.GetValue(hostPortsArgument) ?? [];
@@ -81,7 +85,7 @@ internal static class DisconnectCommand
 
             foreach (DisconnectTarget target in targets)
             {
-                await DisconnectOneAsync(client, target, moonlights, purge, ct);
+                await DisconnectOneAsync(client, target, moonlights, purge, keepRunning, ct);
             }
 
             return ExitCodes.Success;
@@ -142,13 +146,13 @@ internal static class DisconnectCommand
 
     private static async Task DisconnectOneAsync(
         AgentClient client, DisconnectTarget target,
-        IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights, bool purge, CancellationToken ct)
+        IReadOnlyList<(int Pid, string CommandLine, string? WindowTitle)> moonlights, bool purge, bool keepRunning, CancellationToken ct)
     {
         KillMoonlights(target, moonlights);
 
         if (target.SessionId is not null)
         {
-            await client.DeleteSessionAsync(target.SessionId, ct);
+            await client.DeleteSessionAsync(target.SessionId, keepRunning, ct);
             Log.Information("Session {SessionId}: disconnect signalled to the agent.", target.SessionId);
 
             if (purge)

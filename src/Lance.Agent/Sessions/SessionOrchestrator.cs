@@ -110,7 +110,7 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
         }
     }
 
-    public async Task EndSessionAsync(string sessionId, string source, CancellationToken cancellationToken = default)
+    public async Task EndSessionAsync(string sessionId, string source, bool keepRunning = false, CancellationToken cancellationToken = default)
     {
         // Mark ended first so two detectors racing to end the same session run teardown
         // only once.
@@ -118,6 +118,11 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
         {
             return;
         }
+
+        // Capture the session's own slots before it is freed, so they can be stopped.
+        IReadOnlyList<int> slotIds = _registry.TryGet(sessionId, out Session? session) && session is not null
+            ? session.SlotIds
+            : [];
 
         try
         {
@@ -128,15 +133,33 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
         }
         catch (Exception ex)
         {
-            // Teardown must never pin a slot: log the failure but still free the session
-            // in the finally. Any leftover record file is replayed by the reconciler at
+            // Teardown must never pin a slot: log the failure but still stop + free the
+            // session below. Any leftover record file is replayed by the reconciler at
             // next startup.
             _logger.LogWarning(ex, "Session {SessionId}: teardown did not complete cleanly; freeing it anyway.", sessionId);
         }
         finally
         {
+            // Stop the session's own slots so ending it tears down its virtual displays.
+            // Leaving Apollo running reconfigures the agent's desktop (a virtual display
+            // becomes primary); the slower reconnect is the accepted cost. `keepRunning`
+            // (disconnect --keep-running) opts out for a fast reconnect. Only this
+            // session's slots are touched — standalone adopted instances are never
+            // stopped here, and orphan reconcile still leaves Apollo running by design.
+            if (!keepRunning)
+            {
+                await StopSessionSlotsAsync(slotIds);
+            }
+
             _registry.Remove(sessionId);
-            _logger.LogInformation("Session {SessionId}: ended ({Source}); slots freed, Apollo left running.", sessionId, source);
+            if (keepRunning)
+            {
+                _logger.LogInformation("Session {SessionId}: ended ({Source}); slots freed, Apollo left running.", sessionId, source);
+            }
+            else
+            {
+                _logger.LogInformation("Session {SessionId}: ended ({Source}); slots stopped and freed.", sessionId, source);
+            }
         }
     }
 
@@ -333,6 +356,24 @@ internal sealed class SessionOrchestrator : ISessionOrchestrator
             if (!result.IsSuccess)
             {
                 _logger.LogWarning("Session setup: slot {SlotId} failed to start ({ErrorCode}); dropping it.", slotId, result.ErrorCode);
+            }
+        }
+    }
+
+    // Stop each of an ending session's slots. Detached from any request token (teardown
+    // must finish) and per-slot guarded so one failure never pins the rest or the
+    // session. StopAsync is a no-op for a slot already gone from the tracker.
+    private async Task StopSessionSlotsAsync(IReadOnlyList<int> slotIds)
+    {
+        foreach (int slotId in slotIds)
+        {
+            try
+            {
+                await _lifecycle.StopAsync(slotId, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Session end: could not stop slot {SlotId}.", slotId);
             }
         }
     }

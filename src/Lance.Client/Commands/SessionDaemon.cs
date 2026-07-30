@@ -85,7 +85,8 @@ internal static class SessionDaemon
         KillRemaining(launched);
 
         // Clean-disconnect ping (fast path). Best-effort — probe-watch backstops it.
-        await client.DeleteSessionAsync(sessionId, CancellationToken.None);
+        // The daemon always stops the slots (tears down the displays) on teardown.
+        await client.DeleteSessionAsync(sessionId, keepRunning: false, CancellationToken.None);
         return ExitCodes.Success;
     }
 

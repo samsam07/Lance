@@ -153,8 +153,8 @@ primary flag). No agent required. Use to pick IDs for `--monitors`.
 is comma-separated 1-indexed physical monitor IDs; default: all physical monitors
 (requires OS display enumeration). Includes free-slot check (exit 2 if no capacity).
 
-`lance disconnect [--slots <list>] [--keep-running] [--purge]` — kill Moonlight,
-optionally stop Apollo, optionally deallocate. See ARCHITECTURE.md disconnect flow.
+`lance disconnect [--session-id <id>] [--keep-running] [--purge]` — kill Moonlight,
+stop Apollo (unless `--keep-running`), optionally deallocate. See ARCHITECTURE.md disconnect flow.
 
 > **OS display enumeration:** Windows uses `EnumDisplayDevicesW` + `EnumDisplaySettingsExW`
 > (`user32.dll`). Linux uses Xrandr 1.5 via `libX11`/`libXrandr` P/Invoke — requires
@@ -425,9 +425,11 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
   repeatable and additive over the client config `hooks` list.
 - `lance disconnect [--session-id <id>] [--keep-running] [--purge] [<host:port> …]`
   — session-based; kill Moonlights (agent fast-path to resolve the session's slots,
-  or explicit `host:port` fallback when the agent is unreachable). `--keep-running`
-  (default) leaves Apollo running; `--purge` stops+deallocates the session's slots
-  (Slot 0 excluded, wins over `--keep-running` with a warning). No id → all sessions.
+  or explicit `host:port` fallback when the agent is unreachable). Ending a session
+  **stops its slots' Apollo by default** (via the ping — tears down the virtual displays);
+  `--keep-running` (ping carries `keepRunning=true`) leaves Apollo up for a fast reconnect;
+  `--purge` stops+deallocates the session's slots (Slot 0 excluded, wins over
+  `--keep-running` with a warning). No id → all sessions.
 
 ### New config surface
 

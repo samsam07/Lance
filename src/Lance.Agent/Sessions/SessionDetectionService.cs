@@ -123,13 +123,13 @@ internal sealed class SessionDetectionService : BackgroundService
             else if (now - session.CreatedAt >= _provisionGrace)
             {
                 _logger.LogInformation("Session {SessionId}: no client connected within {Grace}s; ending it.", session.Id, _provisionGrace.TotalSeconds);
-                await _orchestrator.EndSessionAsync(session.Id, "provision_timeout", cancellationToken);
+                await _orchestrator.EndSessionAsync(session.Id, "provision_timeout", cancellationToken: cancellationToken);
             }
         }
         else if (!anyConnected)
         {
             _logger.LogInformation("Session {SessionId}: the client disconnected; ending it.", session.Id);
-            await _orchestrator.EndSessionAsync(session.Id, "probe_watch", cancellationToken);
+            await _orchestrator.EndSessionAsync(session.Id, "probe_watch", cancellationToken: cancellationToken);
         }
     }
 }

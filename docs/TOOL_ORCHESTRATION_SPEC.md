@@ -223,7 +223,7 @@ Sequencing note: the agent's `session_started` hooks complete before the client'
 4. Client: raise `session_started` → run client hooks (launch-vox).
 5. Client blocks, watching Moonlights.
 6. Last Moonlight exits / Ctrl-C / SIGHUP → client raises `session_ended` → run client hooks (kill-vox) → kill remaining Moonlights → send ping → exit.
-7. Agent: on ping (or probe-watch all-idle, or provision timeout, or startup reconcile) → raise `session_ended` → run agent hooks (kill-vox, restore) → delete record → free slots (Apollo left running).
+7. Agent: on a live end — ping, probe-watch all-idle, or provision timeout → raise `session_ended` → run agent hooks (kill-vox, restore) → delete record → **stop the session's own slots** (tears down its virtual displays; slot 0 included, standalone adopted instances untouched) → free them. Leaving Apollo running would reconfigure the agent's desktop (a virtual display becomes primary); the slower reconnect is the accepted cost. A `disconnect --keep-running` ping carries `keepRunning=true`, which skips the stop (Apollo left running for a fast reconnect). **Startup reconcile** of an orphaned session runs the same teardown but **leaves Apollo running** (it never stops slots).
 
 ## 10. Future / nice-to-have
 

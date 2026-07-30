@@ -19,7 +19,11 @@ internal sealed record SessionCreationResult
 internal interface ISessionOrchestrator
 {
     Task<SessionCreationResult> CreateSessionAsync(string sessionId, int count, string clientIp, string agentIp, CancellationToken cancellationToken = default);
-    Task EndSessionAsync(string sessionId, string source, CancellationToken cancellationToken = default);
+
+    // Ends a session: run teardown, then (unless keepRunning) stop its slots so the
+    // virtual displays come down. keepRunning is the `disconnect --keep-running` opt-out
+    // for a fast reconnect; automatic ends (probe-watch / provision-timeout) always stop.
+    Task EndSessionAsync(string sessionId, string source, bool keepRunning = false, CancellationToken cancellationToken = default);
 
     // Query for the disconnect fast-path: which slots a session holds, so the client
     // can match and kill the right Moonlights.

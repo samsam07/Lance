@@ -102,10 +102,46 @@ public sealed class SessionOrchestratorTests
         SessionOrchestrator orchestrator = BuildOrchestrator(slots, dir.Path, out SessionRegistry registry);
         await orchestrator.CreateSessionAsync("abc", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
 
-        await orchestrator.EndSessionAsync("abc", "probe_watch", TestContext.Current.CancellationToken);
+        await orchestrator.EndSessionAsync("abc", "probe_watch", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(registry.TryGet("abc", out _));
         Assert.False(File.Exists(Path.Combine(dir.Path, "abc.json")));
+    }
+
+    [Fact]
+    public async Task EndSession_StopsTheSessionSlots()
+    {
+        using SessionTempDir dir = new();
+        FakeSlots slots = new();
+        slots.Seed(0, "Allocated", isTemplate: true);
+        SessionOrchestrator orchestrator = BuildOrchestrator(slots, dir.Path, out _);
+        SessionCreationResult created = await orchestrator.CreateSessionAsync("abc", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
+        Assert.Equal("Running", created.Slots[0].Status);
+
+        await orchestrator.EndSessionAsync("abc", "ping", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Ending the session stops its slot's Apollo — even slot 0 (the template) — so
+        // the virtual display is torn down rather than left running.
+        SlotDto slot0 = slots.Scan()[0];
+        Assert.Equal(0, slot0.Id);
+        Assert.Equal("Allocated", slot0.Status);
+        Assert.Null(slot0.ProcessId);
+    }
+
+    [Fact]
+    public async Task EndSession_KeepRunning_FreesSessionButLeavesSlotRunning()
+    {
+        using SessionTempDir dir = new();
+        FakeSlots slots = new();
+        slots.Seed(0, "Allocated", isTemplate: true);
+        SessionOrchestrator orchestrator = BuildOrchestrator(slots, dir.Path, out SessionRegistry registry);
+        await orchestrator.CreateSessionAsync("abc", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
+
+        await orchestrator.EndSessionAsync("abc", "ping", keepRunning: true, TestContext.Current.CancellationToken);
+
+        // --keep-running: the session is freed but its Apollo stays up for a fast reconnect.
+        Assert.False(registry.TryGet("abc", out _));
+        Assert.Equal("Running", slots.Scan()[0].Status);
     }
 
     [Fact]
@@ -117,7 +153,7 @@ public sealed class SessionOrchestratorTests
         SessionOrchestrator orchestrator = BuildOrchestrator(slots, dir.Path, out _);
 
         SessionCreationResult first = await orchestrator.CreateSessionAsync("aaa", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
-        await orchestrator.EndSessionAsync("aaa", "ping", TestContext.Current.CancellationToken);
+        await orchestrator.EndSessionAsync("aaa", "ping", cancellationToken: TestContext.Current.CancellationToken);
         SessionCreationResult second = await orchestrator.CreateSessionAsync("bbb", 1, "10.0.0.3", "10.0.0.2", TestContext.Current.CancellationToken);
 
         // The ended session freed slot 0, so the next connect reuses it — the pool must
@@ -137,7 +173,7 @@ public sealed class SessionOrchestratorTests
         await orchestrator.CreateSessionAsync("abc", 1, "10.0.0.1", "10.0.0.2", TestContext.Current.CancellationToken);
 
         // A failing teardown must never pin the slot: the session is still freed.
-        await orchestrator.EndSessionAsync("abc", "ping", TestContext.Current.CancellationToken);
+        await orchestrator.EndSessionAsync("abc", "ping", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(registry.TryGet("abc", out _));
     }
@@ -233,6 +269,11 @@ internal sealed class FakeSlots : ISlotScanner, ISlotAllocator, ISlotLifecycle
 
     public Task<LifecycleResult> StopAsync(int slotId, CancellationToken cancellationToken = default)
     {
+        if (_slots.TryGetValue(slotId, out SlotDto? slot) && slot.Status is "Running" or "Connected")
+        {
+            _slots[slotId] = slot with { Status = "Allocated", ProcessId = null };
+        }
+
         return Task.FromResult(new LifecycleResult());
     }
 

@@ -120,8 +120,8 @@ no port math; the agent supplies every Apollo host:port.
     <HEVC|H264|AV1>`, `--fps <n>`, `--resolution <WxH>`, etc.
 - `lance disconnect [--slots <list>] [--keep-running] [--purge]`
   - `--slots <list>` — target specific slot IDs. Default: all running/connected slots.
-  - `--keep-running` — skip stopping Apollo on the agent; Moonlight is still killed.
-    Use case: disconnect the local session but leave remote Apollo running for quick reconnect.
+  - `--keep-running` — leave the session's Apollo running on the agent (opt out of the
+    default stop); Moonlight is still killed. Use case: quick reconnect without re-launching Apollo.
     Mutually exclusive with `--purge`; `--purge` wins if both are given (warns).
   - `--purge` — stop Apollo, kill Moonlight, then deallocate the slot. Slot 0 excluded.
 - `lance monitors` — list physical monitors on the local machine (ID, name, resolution,
@@ -192,10 +192,12 @@ correct physical monitor; failed slots are logged and absent. The setup may be p
 > connect` daemon then reacts to its children dying and runs `session_ended`), with
 > the agent as the fast path for resolving the session's slots and a `host:port`
 > CLI fallback when the agent is unreachable. **The `--keep-running` / `--purge`
-> flags are retained on top of the session model** (owner decision): default leaves
-> Apollo running for fast reconnect; `--purge` additionally stops+deallocates the
-> session's slots (Slot 0 excluded). The per-slot best-effort mechanics below are
-> reused. See "Sessions & tool orchestration" below.
+> flags are retained on top of the session model** (owner decision): **ending a session
+> stops its slots by default** (tears down the virtual displays, so the agent desktop
+> isn't left reconfigured with a virtual display as primary); `--keep-running` leaves
+> Apollo up for a fast reconnect; `--purge` additionally deallocates the session's slots
+> (Slot 0 excluded). The per-slot best-effort mechanics below are reused. See "Sessions
+> & tool orchestration" below.
 
 Target: all `Running`/`Connected` slots, or only those in `--slots <list>` if specified.
 
@@ -203,12 +205,14 @@ For each target slot (best-effort; a failed step is logged, other slots proceed)
 1. **Kill all matching Moonlight processes** (client): enumerate `moonlight`
    processes and match using the two-method detection below. Always done,
    regardless of flags. Multiple Moonlight clients per slot are all killed.
-2. **`POST /slots/{id}/stop`** (agent). Skipped if `--keep-running`.
+2. **Agent stops the session's slots** — driven by the disconnect ping
+   (`DELETE /sessions/{id}`): ending the session stops each of its slots (Slot 0 included).
+   Skipped when the ping carries `keepRunning=true` (`--keep-running`).
 3. **`DELETE /slots/{id}`** (agent). Only if `--purge`; Slot 0 excluded.
 
-**`--keep-running`:** skip step 2 (Apollo stays running on the remote). Step 1 still
-executes — Moonlight is always killed. Use case: disconnect the session but leave
-Apollo running for quick reconnect.
+**`--keep-running`:** the ping carries `keepRunning=true`, so the agent skips stopping the
+slots (Apollo stays running). Step 1 still executes — Moonlight is always killed. Use case:
+quick reconnect without re-launching Apollo.
 
 **`--purge`:** executes all three steps. Takes precedence over `--keep-running` if
 both are given (client warns that `--keep-running` is ignored).

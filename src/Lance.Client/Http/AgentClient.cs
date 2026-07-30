@@ -77,9 +77,12 @@ internal sealed class AgentClient : IDisposable
         return await GetAsync("sessions", LanceSharedJsonContext.Default.SessionsListResponse, cancellationToken);
     }
 
-    public async Task<AgentResult<bool>> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async Task<AgentResult<bool>> DeleteSessionAsync(string sessionId, bool keepRunning, CancellationToken cancellationToken = default)
     {
-        return await DeleteAsync($"sessions/{sessionId}", cancellationToken);
+        // keepRunning=true tells the agent to leave the session's Apollo running for a
+        // fast reconnect; the default ends and stops the slots (tears down the displays).
+        string path = keepRunning ? $"sessions/{sessionId}?keepRunning=true" : $"sessions/{sessionId}";
+        return await DeleteAsync(path, cancellationToken);
     }
 
     public async Task<AgentResult<bool>> StartSlotAsync(int slotId, CancellationToken cancellationToken = default)

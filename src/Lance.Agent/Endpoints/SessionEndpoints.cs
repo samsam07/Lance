@@ -36,9 +36,11 @@ internal static class SessionEndpoints
     // session is a no-op. Probe-watch backstops it if it never arrives. Teardown runs
     // detached from the request token: the client fires this ping as it exits, so tying
     // teardown to the request would cut off the hooks (e.g. audio restore) mid-way.
-    private static async Task<Ok> DeleteSession(string id, ISessionOrchestrator orchestrator)
+    // `?keepRunning=true` (disconnect --keep-running) leaves the slots' Apollo up for a
+    // fast reconnect; absent/false stops them.
+    private static async Task<Ok> DeleteSession(string id, bool? keepRunning, ISessionOrchestrator orchestrator)
     {
-        await orchestrator.EndSessionAsync(id, "ping", CancellationToken.None);
+        await orchestrator.EndSessionAsync(id, "ping", keepRunning == true, CancellationToken.None);
         return TypedResults.Ok();
     }
 
