@@ -1,6 +1,4 @@
 - Changelog
-- On client Ctrl+C, ask to either keep-running (Yes) the agent or stop it (No - default). A forced Ctrl+C afterwards defaults to stopping the agent slot
-- Lance agent should act as a watchdog for Apollo instances
 
 ---
 
