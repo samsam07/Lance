@@ -5,14 +5,14 @@ Development proceeds in phases. These descriptions serve as **task-attribution g
 - **Phase 1 — MVP:** Proves the concept with the smallest working slice. Slot lifecycle (allocate / start / stop / deallocate) over plain HTTP; no auth, no sessions, no service install. A task belongs here if it is required to get `lance connect` working end-to-end on one machine pair.
 - **Phase 2 — Alpha:** Makes the tool fully functional for personal use. Auth/TLS, slot Connected state, client-driven connect/disconnect, and platform completions deferred from Phase 1. A task belongs here if it builds on the Phase-1 slot layer and does not require a session abstraction.
 - **Phase 3 — Beta:** Makes the tool shareable. Feature-complete but not yet public-ready — integration tests, session layer (monitor↔slot mapping, state files), polish, and anything that requires Phase-2 features to be stable first. A task belongs here if it adds the session abstraction or is about hardening rather than new capability.
-- **Phase 4 — Release:** Hardens and packages for distribution. Windows service / daemon install, auto-managing the Apollo service/watchdog (`[DEFER-SVC]`), installer, and public-facing hardening. A task belongs here if it changes the deployment/install model rather than application logic.
+- **Phase 4 — Release:** Hardens and packages for distribution. Installer and public-facing hardening. (Agent service/daemon install and Apollo service auto-management/watchdog `[DEFER-SVC]` were pulled forward to Phase 3.) A task belongs here if it changes the packaging/distribution model rather than application logic.
 
 Phases 1 and 2 are detailed below with full slice breakdowns. Phase 3 is
 fleshed out as Phase 2 shipped; Phase 4 remains a one-liner.
 
 ---
 
-## Phase 1 — MVP *(✓ Complete)*
+## Phase 1 — MVP *(✅ Complete)*
 
 **Goal:** the smallest end-to-end tool that proves the concept. Used personally
 to validate that orchestrating parallel Apollo + Moonlight actually works.
@@ -95,7 +95,7 @@ Unit and integration tests are deferred — no test code is written during Phase
 
 ---
 
-## Phase 2 — Alpha *(✓ Complete)*
+## Phase 2 — Alpha *(✅ Complete)*
 
 **Goal:** a fully functional personal tool. Auth/TLS secures the API, slot
 Connected state enables free-slot detection, and `connect`/`disconnect` use the
@@ -113,8 +113,8 @@ full client-driven flow with `--monitors` and `--slots`.
 - Unit and integration tests (first test code written this phase).
 
 **Out of scope (deferred)**
-- Windows service / daemon install (Phase 4).
-- Auto-managing the Apollo service/watchdog `[DEFER-SVC]` (Phase 4).
+- Windows service / daemon install (Phase 3).
+- Auto-managing the Apollo service/watchdog `[DEFER-SVC]` (Phase 3).
 - Session layer: `POST /sessions`, state files, monitor↔slot mapping (later phase).
 - `[VERIFY-APOLLO]` Linux agent privilege model (verify before Linux deployment).
 
@@ -202,11 +202,12 @@ partial-success logic (Slice 4) at minimum. Integration tests deferred to Phase 
 orchestration subsystem** (Slice 1) is the major body of this phase and shipped
 first; the remaining work is daily-use fixes and polish, Linux client completions,
 integration tests, and hardening. A task belongs here if it adds the session layer,
-fixes something discovered in use, closes a Linux gap, adds integration coverage, or
-improves resilience — without changing the deployment model.
+fixes something discovered in use, closes a Linux gap, adds integration coverage,
+improves resilience, or hardens the agent's own deployment (service install, Apollo
+watchdog — pulled forward from Phase 4).
 
 **In scope**
-- **Sessions & tool orchestration subsystem** *(✓ code-complete — see Slice 1)* — the
+- **Sessions & tool orchestration subsystem** *(✅ code-complete — see Slice 1)* — the
   session/event/hook layer that lets sidecar tools (`vox`, `clipline`, keystroke relay)
   run with coordinated setup/teardown on both machines. Design locked in
   `docs/TOOL_ORCHESTRATION_SPEC.md`, integrated into ARCHITECTURE ("Sessions & tool
@@ -214,6 +215,9 @@ improves resilience — without changing the deployment model.
   Phase 3** and supersedes the earlier *tentative* session-layer sketch (which was
   monitor↔slot mapping only).
 - Daily-use fixes and polish (anything surfaced during use).
+- Agent service / daemon install (pulled forward from Phase 4).
+- Apollo service auto-management + watchdog (`[DEFER-SVC]`, pulled forward from Phase 4)
+  — the agent stops the vendor Apollo service and watches its own Apollo slots.
 - Linux client completions deferred from Phase 2.
 - Integration tests (agent + client, real HTTP, no mocks).
 - Client config XDG compliance (`[DEFER-PATHS]`).
@@ -222,59 +226,57 @@ improves resilience — without changing the deployment model.
 - Pure Wayland/XWayland support for `lance monitors`.
 
 **Out of scope (deferred)**
-- Windows service / daemon install (Phase 4).
-- Auto-managing the Apollo service/watchdog `[DEFER-SVC]` (Phase 4).
 - `[DEFER-PAIR-AUTO]` automated slot pairing (Phase 4).
 
 ### Phase 3 — slice breakdown (review gates)
 
 Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 
-1. **Sessions & tool orchestration subsystem.** *(✓ Complete — code-complete 1.0–1.8;
+1. **Sessions & tool orchestration subsystem.** *(✅ Complete — code-complete 1.0–1.8;
    only the 1.8 live end-to-end run remains. Architecture-zone: the major Phase-3 body.)*
    Behavior in ARCHITECTURE "Sessions & tool orchestration"; values in SPEC
    "Sessions & orchestration". Sub-slices:
 
-   - **1.0 — Docs reconciliation.** ✓ **Done.** Integrate the spec, resolve/flag
+   - **1.0 — Docs reconciliation.** ✅ **Done.** Integrate the spec, resolve/flag
      conflicts (`[VALIDATE-UDP]`, `[SESSION-ENDPOINT]`, disconnect reconciliation),
      produce this breakdown.
-   - **1.1 — `[VALIDATE-UDP]` detection probe + logging.** ✓ **Done (2026-07-11).**
+   - **1.1 — `[VALIDATE-UDP]` detection probe + logging.** ✅ **Done (2026-07-11).**
      UDP endpoint-presence probe (owning PID + resolved ports; base+offset map in a
      host-adapter seam) + transition logging, validated against a live stream.
      Offsets confirmed base `+9/+10/+11`; connect ~1s, ungraceful teardown ~6–7s. The
      TCP `Connected` probe was retired — `SlotDto.Status` now derives from UDP
      presence. Key finding: Lance's kill-based `disconnect` is ungraceful, so the
      clean-disconnect ping (1.7) is the only fast disconnect path.
-   - **1.2 — Agent: session model + record persistence.** ✓ **Done.** State machine
+   - **1.2 — Agent: session model + record persistence.** ✅ **Done.** State machine
      `Provisioned→Connected→Ended`; atomic session record (temp+rename) at
      `%ProgramData%\Lance\sessions\<id>.json`; persist-before-setup /
      delete-after-teardown invariant.
-   - **1.3 — Hook engine (shared).** ✓ **Done.** New `Lance.Hooks` project: JSON
+   - **1.3 — Hook engine (shared).** ✅ **Done.** New `Lance.Hooks` project: JSON
      discovery/parse, `${VAR}` substitution, `ArgumentList` spawn (no shell),
      `async`/`onError`/`timeoutSeconds`/`workingDir`, priority + array ordering,
      env-payload injection.
-   - **1.4 — Agent: connect handshake + `session_started` + detection loop.** ✓ **Done.**
+   - **1.4 — Agent: connect handshake + `session_started` + detection loop.** ✅ **Done.**
      Vet `session_id` (collision → refuse), session-aware free-slot pick, persist, run
      agent hooks, respond; background watch fires `provision_timeout` / `probe_watch` →
      `session_ended`. New `POST /sessions` endpoint (`[SESSION-ENDPOINT]` resolved).
-   - **1.5 — Agent: crash recovery / reconciliation.** ✓ **Done.** On startup, after
+   - **1.5 — Agent: crash recovery / reconciliation.** ✅ **Done.** On startup, after
      adoption and before the listener opens, `SessionReconciler` probes each surviving
      record's slots: any connected → re-adopt (Connected); all idle → replay the
      snapshotted teardown (`source=reconcile`) and delete the record. Point-in-time
      probe (no grace); Apollo is never stopped.
-   - **1.6 — Client: foreground daemon connect.** ✓ **Done.** `lance connect` blocks
+   - **1.6 — Client: foreground daemon connect.** ✅ **Done.** `lance connect` blocks
      until the session ends: `POST /sessions` handshake, launch one Moonlight per slot
      in a kill-on-close Job Object (Win) / tree-kill (Linux), degraded-launch policy,
      `session_started`/`session_ended` client hooks, block watching streams, Ctrl-C /
      last-exit teardown. `--session-id` + repeatable `--hook`.
-   - **1.7 — Client: disconnect + clean-disconnect ping.** ✓ **Done.** Agent gained
+   - **1.7 — Client: disconnect + clean-disconnect ping.** ✅ **Done.** Agent gained
      `GET /sessions`, `GET /sessions/{id}`, `DELETE /sessions/{id}` (ping →
      `session_ended(ping)`). `lance disconnect [--session-id] [--keep-running]
      [--purge] [host:port…]` — agent fast-path resolves a session's slots, `host:port`
      args are the unreachable-agent fallback; kills Moonlights, pings the agent,
      `--purge` also stops+deallocates (Slot 0 excluded). The daemon also pings on its
      own teardown.
-   - **1.8 — Reference `vox` hooks + end-to-end validation.** ✓ **Hooks shipped.**
+   - **1.8 — Reference `vox` hooks + end-to-end validation.** ✅ **Hooks shipped.**
      `samples/hooks/`: `vox.agent.json` + `vox.client.json` (the reference `vox`
      flow) and `smoke.json` (dependency-free — appends to a log on each event, for
      validating the mechanism + crash-recovery replay without extra tooling).
@@ -284,7 +286,7 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
 
 2. **Daily-use fixes and polish.**
    Issues surfaced during personal daily use.
-   - **Log clarity pass (agent + client).** ✓ **Done.** Agent logs are hard to follow — Lance's
+   - **Log clarity pass (agent + client).** ✅ **Done.** Agent logs are hard to follow — Lance's
      meaningful lines are buried under framework/HTTP request noise; quiet the noisy
      categories and make the domain events read as a clear narrative. Client output
      over-relies on decorative table framing (a gimmick where a plain line reads
@@ -293,7 +295,30 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      clutter. Follows the CONVENTIONS "Logging messages" rule.
    - *(Further items added as discovered.)*
 
-3. **Linux client completions.**
+3. **Agent service / daemon install.** *(Pulled forward from Phase 4.)*
+   Install the agent as a Windows service (and Linux daemon) so it starts on boot and
+   runs without an interactive login, instead of today's plain process. Covers
+   install / uninstall / start / stop, running under the account and elevation the agent
+   needs, and auto-restart on crash — which the orchestration design already leans on
+   (TOOL_ORCHESTRATION_SPEC: "the Windows service auto-restart makes host-state loss
+   rare"). `[VERIFY-APOLLO]` gates the Linux daemon.
+   *(Architecture-zone: this changes the deployment model. Service host, install
+   mechanism, and the run-as account/elevation are undecided — surface and get approval,
+   do not invent.)*
+
+4. **Apollo service auto-management + watchdog (`[DEFER-SVC]`).**
+   Today the user must manually stop the Apollo service (`sunshinesvc.exe` watchdog +
+   `apollo.exe`) before Lance runs, so Lance can own its own `sunshine.exe` launches
+   (SPEC "Prerequisite", ARCHITECTURE `[DEFER-SVC]`). This slice has the agent do it:
+   stop / hold the vendor Apollo service on startup so slots don't collide with it, and
+   **act as a watchdog for Lance's own Apollo slot instances** — detect a slot's Apollo
+   that exited unexpectedly and relaunch it. Resolves `[DEFER-SVC]`.
+   *(Architecture-zone: the service-management approach and the restart policy are
+   undecided — in particular the watchdog must not fight a session-driven stop: a slot
+   stopped on session end must stay stopped, not be relaunched. Surface and get approval;
+   do not invent.)*
+
+5. **Linux client completions.**
    - `[DEFER-LINUX-WINDETECT]` — Window title detection for Moonlight instance
      matching (method 2). On Linux, `Process.MainWindowTitle` is not supported;
      use `wmctrl -lp` to enumerate window titles and cross-reference by PID.
@@ -312,19 +337,19 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      `sunshine.exe` (or the Linux binary) need `sudo` / `CAP_NET_BIND_SERVICE`?
      Document findings in ARCHITECTURE.md; adjust agent launch path accordingly.
 
-4. **Integration tests.**
+6. **Integration tests.**
    In-process agent host (`WebApplicationFactory` or `TestServer`), real
    slot operations against a temp config dir, and client HTTP calls over
    localhost. Target: allocate/start/stop/deallocate happy path; free-slot
    capacity logic; auth token enforcement; Connected-state TCP probe with a
    real listener. No mocking of HTTP or file I/O at this layer.
 
-5. **Client config XDG compliance (`[DEFER-PATHS]`).**
+7. **Client config XDG compliance (`[DEFER-PATHS]`).**
    On Linux, resolve `lance.json` from `$XDG_CONFIG_HOME/lance/lance.json`
    (default `~/.config/lance/lance.json`) before the binary-adjacent fallback.
    Windows behaviour unchanged. Document the full lookup order in README.
 
-6. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
+8. **TLS cert pinning / PEM support (`[DEFER-TLS-PINNING]`).**
    Client currently skips TLS validation unconditionally. Add a `tls.certPath`
    field to `lance.json`: when set, load the PEM/DER file and pin the agent's
    cert against it instead of accepting all certs. When absent, behaviour is
@@ -337,16 +362,23 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
   coordination. Reviewed sub-slice by sub-slice at its own gate. *(Complete.)*
 - **Daily-use fixes** (2): varies per issue — investigate before coding;
   config-only changes are low risk; code changes follow normal review depth.
-- **Linux completions** (3): moderate — wmctrl availability and Wayland
+- **Agent service / daemon install** (3): architecture-zone — changes the deployment
+  model; the service host, install mechanism, and run-as account/elevation are
+  owner-decided before any code.
+- **Apollo service auto-management + watchdog** (4): architecture-zone — the
+  service-management and restart policy are subtle (must not fight a session-driven
+  stop); settle the design at the gate before coding.
+- **Linux completions** (5): moderate — wmctrl availability and Wayland
   detection logic are the subtle parts; review all fallback paths.
-- **Integration tests** (4): architecture-zone — test boundaries define what
+- **Integration tests** (6): architecture-zone — test boundaries define what
   we trust; review which layers are real vs. faked.
-- **XDG paths** (5): plumbing — review the lookup order matches the spec.
-- **TLS pinning** (6): moderate — cert loading and validation callback are
+- **XDG paths** (7): plumbing — review the lookup order matches the spec.
+- **TLS pinning** (8): moderate — cert loading and validation callback are
   the correctness-critical parts; review closely.
 
 ## Phase 4 — Release
-Hardening, packaging, install/service, polish. *(TBD.)*
+Hardening, packaging, installer, polish. *(TBD.)* (Agent service/daemon install and
+Apollo service auto-management/watchdog `[DEFER-SVC]` moved to Phase 3.)
 
 Includes `[DEFER-PAIR-AUTO]` — automated slot pairing. See ARCHITECTURE.md for
 the proposed mechanism and the one open verification needed before implementation.

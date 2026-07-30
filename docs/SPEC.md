@@ -197,8 +197,8 @@ proper daemon or service install is added. Deferred items:
 | Client config file (`lance.json`) | beside binary | `~/.config/lance/` (XDG) |
 | Apollo install / config paths (agent defaults) | `ProgramFiles\Apollo` | empty string; `[VERIFY-APOLLO]` unresolved |
 
-Agent paths: defer to **Phase 4** (daemon/service install). Client config path:
-defer to **Phase 3** (XDG compliance).
+Agent paths: defer to **Phase 3** (agent service/daemon install slice). Client config
+path: defer to **Phase 3** (XDG compliance).
 
 ## Moonlight launch
 
@@ -283,9 +283,9 @@ kill/power loss leaves Apollo instances running; the next startup **adopts** the
 > name for Lance's direct-launch path is `sunshine.exe`; confirmed.)
 
 > **`[DEFER-SVC]`** — auto-managing the Apollo service/watchdog (so the user
-> needn't stop it by hand) is deferred, likely Phase 4. The watchdog
+> needn't stop it by hand) is a **Phase 3** slice (not yet done). The watchdog
 > (`sunshinesvc.exe`) resurrects `apollo.exe`, which would fight Lance owning
-> slots (esp. slot 0). Phase 1 sidesteps it by the manual prerequisite above.
+> slots (esp. slot 0). Until that slice, the manual prerequisite above stands.
 
 ## Error response format
 ```json

@@ -43,8 +43,8 @@ small enough to fully read in ~10–15 minutes.
   are **not yours to silently resolve**. `[RESEARCH-1]` (Apollo↔Moonlight
   connection detection) is Phase 2 Slice 1 — a pure research task that produces
   findings documented in ARCHITECTURE.md, not code; all session slices depend on
-  its outcome. `[DEFER-SVC]` — auto-managing the Apollo service/watchdog is Phase
-  4; the user still stops it manually. `[VERIFY-APOLLO]` — Apollo's Linux
+  its outcome. `[DEFER-SVC]` — auto-managing the Apollo service/watchdog is a Phase 3
+  slice (not yet built); until then the user still stops it manually. `[VERIFY-APOLLO]` — Apollo's Linux
   privilege model is untested; verify or ask before Linux agent work. `[VERIFY-MUTEX]`
   — named-mutex cross-process semantics on Linux are unverified; Phase 2 Slice 2
   resolves this (use mutex if reliable, else PID lock file). `[VERIFY-VERSIONS]` —
@@ -54,9 +54,12 @@ small enough to fully read in ~10–15 minutes.
 
 ## Hard rules
 
-- **Phase 2 is active.** Sessions, auth, and TLS are now in scope. No Windows
-  service install (Phase 4). Auto-managing the Apollo service `[DEFER-SVC]`
-  remains deferred (Phase 4). No `[DEFER-1]` audio-master edge case (later phase).
+- **Phase 3 is active.** The sessions & tool-orchestration subsystem shipped (Slice 1);
+  daily-use fixes and polish are the current work (Slice 2). Sessions, auth, and TLS are
+  all in scope and built. No Windows service install yet (Phase 3 Slice 3, not yet
+  reached). Auto-managing the Apollo service `[DEFER-SVC]` is a later Phase 3 slice
+  (Slice 4), still deferred — the user still stops Apollo manually. No `[DEFER-1]`
+  audio-master edge case (later phase).
 - **Connect = partial success**, never all-or-nothing/rollback. 2 of 3 monitors
   beats 0. Master/Slot-0 failure → session runs without audio (warn + continue);
   it does **not** fail the session. (This overturns the old DECISIONS D13 — ignore

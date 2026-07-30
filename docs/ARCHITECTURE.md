@@ -58,8 +58,8 @@ tool orchestration → detection"). `SlotDto.Status` = `"Allocated"` | `"Running
 The agent orchestrates the otherwise-manual work of running parallel Apollo
 instances. It is:
 - A Web API server exposing endpoints to Lance clients.
-- Installed as a daemon / Windows service on the remote machine. *(Phase 2+;
-  Phase 1 runs it as a plain process.)*
+- Installed as a daemon / Windows service on the remote machine. *(Phase 3
+  service-install slice; until then it runs as a plain process.)*
 
 ### Endpoints
 
@@ -230,10 +230,10 @@ standard slots (template + `sunshine_{id}.conf`) and marks each Allocated (with
 PID if adopted, else none). Slot state is always derived from disk + live
 processes, never persisted.
 
-> **Phase 1 prerequisite:** the user manually stops the Apollo *service*
-> (`sunshinesvc.exe` watchdog + `apollo.exe`) before running Lance. Lance manages
-> only its own direct `sunshine.exe` launches. Auto-managing the service is
-> deferred — `[DEFER-SVC]`. Admin on Linux is untested — `[VERIFY-APOLLO]`.
+> **Prerequisite (until the Phase 3 slice ships):** the user manually stops the Apollo
+> *service* (`sunshinesvc.exe` watchdog + `apollo.exe`) before running Lance. Lance manages
+> only its own direct `sunshine.exe` launches. Auto-managing the service is a **Phase 3**
+> slice — `[DEFER-SVC]`. Admin on Linux is untested — `[VERIFY-APOLLO]`.
 
 ### Moonlight instance detection
 
@@ -460,8 +460,8 @@ change; severity low).
   this section; only the client jobs its Moonlights). Only `session_ended` is
   replayed; slot-tier hooks are never replayed.
 - **Accepted gap:** if the agent crashes and **never restarts**, host state stays
-  modified. The Windows service auto-restart (Phase 4) makes this rare; no
-  watchdog-of-watchdog in v1.
+  modified. The Windows service auto-restart (Phase 3 service-install slice) makes this
+  rare; no watchdog-of-watchdog in v1.
 
 ### Wire protocol
 
@@ -495,7 +495,7 @@ dropped; unnecessary given local event dispatch + probe-based detection.
   config) follow Windows / "run from folder" conventions and are non-standard on
   Linux. `lance-agent.pfx`, `lance-agent.json`, and `lance-agent.log` resolve beside
   the binary rather than under `/etc/`, `/var/lib/`, `/var/log/`, or `~/.config/`.
-  Agent paths: revisit when the daemon/service install is added (Phase 4). Client
+  Agent paths: revisit when the daemon/service install is added (Phase 3). Client
   config: XDG compliance (Phase 3). Full table in SPEC.md `[DEFER-PATHS]`.
 - `[DEFER-LINUX-WINDETECT]` **Phase 3** — Linux window title detection for
   Moonlight instance matching (method 2). Windows uses `Process.MainWindowTitle`;
