@@ -64,8 +64,12 @@ small enough to fully read in ~10–15 minutes.
   beats 0. Master/Slot-0 failure → session runs without audio (warn + continue);
   it does **not** fail the session. (This overturns the old DECISIONS D13 — ignore
   any all-or-nothing connect logic from old docs.)
-- **Apollo `file_state` is inherited unchanged** when cloning. Mutating it
-  silently breaks pairing. See SPEC mutation table for the exact fields.
+- **Apollo `file_state` and `credentials_file` are rewritten per clone**, both to the
+  same `sunshine_{N}_state.json` (matching Apollo's default, where both point at one
+  file). Each clone therefore carries its own server UUID and must be paired with
+  Moonlight separately — see `[DEFER-PAIR-AUTO]`. **Slot 0's state file is never
+  touched**, and no two slots may share one. See the SPEC mutation table for the full
+  field list; SPEC is authoritative here.
 - **Slot 0 is never modified or deallocated.**
 - Follow `docs/CONVENTIONS.md` exactly — including the deliberate
   fields→properties→constructor order. Do **not** "correct" it.
