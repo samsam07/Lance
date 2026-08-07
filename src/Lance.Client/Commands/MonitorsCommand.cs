@@ -1,6 +1,9 @@
 using System.CommandLine;
+
 using Lance.Client.Infrastructure;
+
 using Serilog;
+
 using Spectre.Console;
 
 namespace Lance.Client.Commands;
@@ -52,8 +55,6 @@ internal static class MonitorsCommand
             }
 
             console.Write(table);
-            console.WriteLine();
-            console.MarkupLine("[grey]Use the ID or the Monitor name to key --monitor-options and remoteClient.monitorOptions.[/]");
             return Task.FromResult(ExitCodes.Success);
         });
 

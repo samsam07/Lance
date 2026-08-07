@@ -39,6 +39,7 @@
   - [BUG] Client moonlight UI is offcenter on monitors with different scaling (PHY res vs Logical res)
   - [FEAT???] Use logical res instead of physical res when passing resolution to moonlight???
 - [BUG] Clipboard contention. Your Moonlight logs show repeated Qt Warning: Unable to obtain clipboard — the clipline hook fighting Moonlight for the clipboard. Clipboard sync is genuinely failing sometimes.
+- [BUG] First time launch (both agent and client): moonlights connect but then disconnects after some time. Second connect works fine
 
 - desktop switching
 - absolute mouse position between desktops
