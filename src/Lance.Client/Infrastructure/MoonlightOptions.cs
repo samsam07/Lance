@@ -54,7 +54,7 @@ internal static class MoonlightOptions
         Dictionary<int, string[]> byMonitorId = [];
         foreach ((string key, string[] tokens) in entries)
         {
-            KeyResolution resolved = ResolveKey(key, monitors, "monitorOptions");
+            MonitorKeyResolution resolved = MonitorKey.Resolve(key, monitors, "monitorOptions");
             if (resolved.ErrorMessage is not null)
             {
                 return new MonitorOptionsResult { ErrorMessage = resolved.ErrorMessage };
@@ -69,7 +69,7 @@ internal static class MoonlightOptions
             {
                 return new MonitorOptionsResult
                 {
-                    ErrorMessage = $"monitorOptions refers to monitor {monitorId} more than once."
+                    ErrorMessage = $"monitorOptions refers to monitor {MonitorKey.Describe(monitors, monitorId)} more than once."
                 };
             }
 
@@ -93,7 +93,7 @@ internal static class MoonlightOptions
                 };
             }
 
-            KeyResolution resolvedKey = ResolveKey(entry[..separator].Trim(), monitors, "--monitor-options");
+            MonitorKeyResolution resolvedKey = MonitorKey.Resolve(entry[..separator].Trim(), monitors, "--monitor-options");
             if (resolvedKey.ErrorMessage is not null)
             {
                 return new MonitorOptionsResult { ErrorMessage = resolvedKey.ErrorMessage };
@@ -127,51 +127,6 @@ internal static class MoonlightOptions
         return new MonitorOptionsResult { ByMonitorId = resolved };
     }
 
-    // A key is either a monitor id or a monitor name. MonitorId is null when the key
-    // named no monitor at all — a warning, not a failure, matching how --monitors
-    // treats an id that is not present.
-    private readonly record struct KeyResolution(int? MonitorId, string? ErrorMessage);
-
-    private static KeyResolution ResolveKey(string key, IReadOnlyList<MonitorInfo> monitors, string source)
-    {
-        if (int.TryParse(key, out int monitorId))
-        {
-            return new KeyResolution(monitorId, null);
-        }
-
-        List<MonitorInfo> matches = [];
-        foreach (MonitorInfo monitor in monitors)
-        {
-            if (monitor.MatchesName(key))
-            {
-                matches.Add(monitor);
-            }
-        }
-
-        if (matches.Count == 0)
-        {
-            Log.Warning("{Source}: no monitor is called '{Key}' — those options are ignored. Run `lance monitors` to see the names.", source, key);
-            return new KeyResolution(null, null);
-        }
-
-        if (matches.Count > 1)
-        {
-            // Two panels of the same model share a name, so the intent is genuinely
-            // ambiguous. Ids are the unambiguous way to say which.
-            List<int> ids = [];
-            foreach (MonitorInfo monitor in matches)
-            {
-                ids.Add(monitor.Id);
-            }
-
-            return new KeyResolution(
-                null,
-                $"{source}: '{key}' matches more than one monitor ({string.Join(", ", ids)}). Use the monitor id instead.");
-        }
-
-        return new KeyResolution(matches[0].Id, null);
-    }
-
     public static string[] Build(MonitorInfo? monitor, int monitorId, OptionLayers layers, BitrateSelection bitrate)
     {
         List<string> options = [];
@@ -198,12 +153,12 @@ internal static class MoonlightOptions
         options.AddRange(layers.CliOptions);
         options.AddRange(layers.CliMonitorOptions);
 
-        AppendDerivedBitrate(options, monitorId, layers, bitrate);
+        AppendDerivedBitrate(options, MonitorKey.Describe(monitor, monitorId), layers, bitrate);
 
         return [.. options];
     }
 
-    private static void AppendDerivedBitrate(List<string> options, int monitorId, OptionLayers layers, BitrateSelection bitrate)
+    private static void AppendDerivedBitrate(List<string> options, string monitor, OptionLayers layers, BitrateSelection bitrate)
     {
         if (bitrate.IsManual)
         {
@@ -219,8 +174,8 @@ internal static class MoonlightOptions
             if (bitrate.SourceLayer > 0)
             {
                 Log.Warning(
-                    "Monitor {MonitorId}: an explicit --bitrate overrides the {Mode} bitrate mode for this stream",
-                    monitorId, bitrate.Name);
+                    "Monitor {Monitor}: an explicit --bitrate overrides the {Mode} bitrate mode for this stream",
+                    monitor, bitrate.Name);
             }
 
             return;
@@ -228,7 +183,7 @@ internal static class MoonlightOptions
 
         if (!TryReadResolution(options, out int width, out int height))
         {
-            Log.Debug("Monitor {MonitorId}: no resolution is known, so the bitrate is left to Moonlight", monitorId);
+            Log.Debug("Monitor {Monitor}: no resolution is known, so the bitrate is left to Moonlight", monitor);
             return;
         }
 
@@ -239,20 +194,20 @@ internal static class MoonlightOptions
         if (fps > MaxDerivedFps)
         {
             Log.Warning(
-                "Monitor {MonitorId}: streaming at {Fps}fps but the automatic bitrate is capped at {Cap}fps-equivalent ({Kbps} kbps) — set --bitrate explicitly for a full-rate budget",
-                monitorId, fps, MaxDerivedFps, kbps);
+                "Monitor {Monitor}: streaming at {Fps}fps but the automatic bitrate is capped at {Cap}fps-equivalent ({Kbps} kbps) — set --bitrate explicitly for a full-rate budget",
+                monitor, fps, MaxDerivedFps, kbps);
         }
 
         if (explicitLayer >= 0)
         {
             Log.Warning(
-                "Monitor {MonitorId}: the {Mode} bitrate mode overrides the --bitrate set in the configuration ({Kbps} kbps)",
-                monitorId, bitrate.Name, kbps);
+                "Monitor {Monitor}: the {Mode} bitrate mode overrides the --bitrate set in the configuration ({Kbps} kbps)",
+                monitor, bitrate.Name, kbps);
         }
 
         Log.Information(
-            "Monitor {MonitorId}: {Width}x{Height} at {Fps}fps — {Kbps} kbps ({Mode})",
-            monitorId, width, height, fps, kbps, bitrate.Name);
+            "Monitor {Monitor}: {Width}x{Height} at {Fps}fps — {Kbps} kbps ({Mode})",
+            monitor, width, height, fps, kbps, bitrate.Name);
 
         options.Add(BitrateOption);
         options.Add(kbps.ToString(CultureInfo.InvariantCulture));

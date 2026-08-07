@@ -133,14 +133,15 @@ first run without a config file, built-in defaults apply and a warning is logged
 # Check slot states and active Moonlight connections
 lance status
 
-# List physical monitors on this machine (use the IDs with --monitors)
+# List physical monitors on this machine (use the IDs or names with --monitors)
 lance monitors
 
 # Connect to all physical monitors — BLOCKS until the session ends (Ctrl-C to end)
 lance connect
 
-# Connect to specific monitors only (1-indexed, comma-separated)
+# Connect to specific monitors only — by ID, by name, or a mix
 lance connect --monitors 1,3
+lance connect --monitors "BenQ GW2480,U28E590"
 
 # Connect with custom Moonlight options for every stream (later options win)
 lance connect --monitors 1,2 --options "--fps 120 --bitrate 100000"

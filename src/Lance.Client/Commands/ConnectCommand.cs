@@ -63,11 +63,14 @@ internal static class ConnectCommand
 
             IReadOnlyList<MonitorInfo> allMonitors = MonitorEnumerator.Enumerate();
 
-            IReadOnlyList<TargetMonitor>? targetMonitors = ResolveTargetMonitors(pr.GetValue(monitorsOption), allMonitors);
-            if (targetMonitors is null)
+            MonitorSelectionResult selection = MonitorSelection.Resolve(pr.GetValue(monitorsOption), allMonitors);
+            if (!selection.IsSuccess)
             {
+                Log.Error("{Reason}", selection.ErrorMessage);
                 return ExitCodes.Generic;
             }
+
+            IReadOnlyList<TargetMonitor> targetMonitors = selection.Targets;
 
             MonitorOptionsResult configMonitorOptions = MoonlightOptions.ParseConfigEntries(config.RemoteClient.MonitorOptions, allMonitors);
             if (!configMonitorOptions.IsSuccess)
@@ -83,8 +86,8 @@ internal static class ConnectCommand
                 return ExitCodes.Generic;
             }
 
-            WarnUnusedMonitorOptions(targetMonitors, configMonitorOptions.ByMonitorId, "remoteClient.monitorOptions");
-            WarnUnusedMonitorOptions(targetMonitors, cliMonitorOptions.ByMonitorId, "--monitor-options");
+            WarnUnusedMonitorOptions(targetMonitors, allMonitors, configMonitorOptions.ByMonitorId, "remoteClient.monitorOptions");
+            WarnUnusedMonitorOptions(targetMonitors, allMonitors, cliMonitorOptions.ByMonitorId, "--monitor-options");
 
             BitrateModeResult bitrateMode = ResolveBitrateMode(pr.GetValue(bitrateModeOption), config.RemoteClient.BitrateMode);
             if (!bitrateMode.IsSuccess)
@@ -136,7 +139,10 @@ internal static class ConnectCommand
     // Options aimed at a monitor that is not part of this connect do nothing. That is
     // almost always a typo or a stale config, so say so rather than staying silent.
     private static void WarnUnusedMonitorOptions(
-        IReadOnlyList<TargetMonitor> targetMonitors, IReadOnlyDictionary<int, string[]> monitorOptions, string source)
+        IReadOnlyList<TargetMonitor> targetMonitors,
+        IReadOnlyList<MonitorInfo> allMonitors,
+        IReadOnlyDictionary<int, string[]> monitorOptions,
+        string source)
     {
         if (monitorOptions.Count == 0)
         {
@@ -153,81 +159,11 @@ internal static class ConnectCommand
         {
             if (!connectedIds.Contains(monitorId))
             {
-                Log.Warning("{Source} targets monitor {Id}, which is not part of this connect — those options are ignored", source, monitorId);
+                Log.Warning(
+                    "{Source} targets monitor {Monitor}, which is not part of this connect — those options are ignored",
+                    source, MonitorKey.Describe(allMonitors, monitorId));
             }
         }
-    }
-
-    // Returns the ordered per-position target list (Monitor is null when the requested
-    // id is not present locally), or null if the input is invalid (empty selection /
-    // duplicate id).
-    private static IReadOnlyList<TargetMonitor>? ResolveTargetMonitors(string? monitorsStr, IReadOnlyList<MonitorInfo> allMonitors)
-    {
-        Dictionary<int, MonitorInfo> monitorById = [];
-        foreach (MonitorInfo monitor in allMonitors)
-        {
-            monitorById[monitor.Id] = monitor;
-        }
-
-        List<int> targetIds = [];
-        if (monitorsStr is null)
-        {
-            if (allMonitors.Count == 0)
-            {
-                Log.Error("Monitor detection failed. Use --monitors <list> to connect manually.");
-                return null;
-            }
-
-            foreach (MonitorInfo monitor in allMonitors)
-            {
-                targetIds.Add(monitor.Id);
-            }
-        }
-        else if (!ParseMonitorList(monitorsStr, monitorById, allMonitors.Count > 0, targetIds))
-        {
-            return null;
-        }
-
-        List<TargetMonitor> targets = [];
-        foreach (int id in targetIds)
-        {
-            targets.Add(new TargetMonitor { Id = id, Monitor = monitorById.GetValueOrDefault(id) });
-        }
-
-        return targets;
-    }
-
-    private static bool ParseMonitorList(string monitorsStr, Dictionary<int, MonitorInfo> monitorById, bool canValidate, List<int> targetIds)
-    {
-        HashSet<int> seen = [];
-        foreach (string part in monitorsStr.Split(','))
-        {
-            string trimmed = part.Trim();
-            if (!int.TryParse(trimmed, out int id))
-            {
-                Log.Warning("Skipping invalid monitor ID '{Id}'", trimmed);
-                continue;
-            }
-            if (!seen.Add(id))
-            {
-                Log.Error("Duplicate monitor ID {Id} in --monitors list", id);
-                return false;
-            }
-            if (canValidate && !monitorById.ContainsKey(id))
-            {
-                Log.Warning("Monitor {Id} not found on this machine — skipping", id);
-                continue;
-            }
-            targetIds.Add(id);
-        }
-
-        if (targetIds.Count == 0)
-        {
-            Log.Error("No valid monitor IDs in --monitors list");
-            return false;
-        }
-
-        return true;
     }
 
     private static IReadOnlyList<HookFileRef> BuildHookReferences(ClientConfig config, string? configDirectory, string[] hookPaths)

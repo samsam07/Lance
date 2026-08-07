@@ -325,6 +325,12 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
        `Monitor` column in `lance monitors`, and key resolution accepting an id or an
        exact case-insensitive name. Unknown name → warn and skip; ambiguous name (two
        identical panels) → fast-fail. Verified against real hardware.
+     - **2.6 — Name references everywhere.** ✅ **Done.** `--monitors` accepts names
+       too, so all three monitor references share one resolver (`MonitorKey`) and
+       cannot drift. Duplicate detection moved *after* resolution, so `1,U28E590`
+       naming one screen fast-fails instead of claiming two slots. Selection logic
+       moved out of `ConnectCommand` into `MonitorSelection` and given its first
+       tests. All monitor-facing output now names the monitor, not just its id.
    - *(Further items added as discovered.)*
 
 3. **Agent service / daemon install.** *(Pulled forward from Phase 4.)*

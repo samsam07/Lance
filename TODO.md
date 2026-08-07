@@ -20,6 +20,8 @@
     With no `--bitrate` and no mode set, the three monitors now size to ~12 / ~22 /
     ~49 Mbps (~83 Mbps total) instead of a flat 3 × 80 = 240 Mbps.
   - [✅] Slice 2.5 — refer to a monitor by name as well as id.
+  - [✅] Slice 2.6 — `--monitors` accepts names too; one shared resolver for all three
+    monitor references; every message names the monitor rather than just its id.
   - [ ] **End-to-end test of the whole stream-tuning stack** (2.1-2.5) against the live
     3-monitor setup — the layer merge is on the launch path for every stream and has
     only been exercised by unit tests plus `lance monitors`.

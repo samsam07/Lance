@@ -236,6 +236,11 @@ match display`). No snapping to "standard" rates.
 > **Shipped in slice 2.5.** Names work on Windows via the CCD API and on Linux via the
 > Xrandr output name. Canonical description now lives in SPEC "Monitor keys"; the
 > design rationale below is retained.
+>
+> **Extended in slice 2.6.** Naming applies to **`--monitors`** as well, not just the
+> option maps — one resolver (`MonitorKey`) serves all three so the rules cannot drift.
+> Duplicate detection consequently moved *after* resolution: `--monitors 1,U28E590`
+> naming one screen is a fast-fail rather than a request for two slots.
 
 
 Keys in `monitorOptions` / `--monitor-options` resolve as **all-digits → monitor id;

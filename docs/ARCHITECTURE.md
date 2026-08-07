@@ -114,8 +114,8 @@ no port math; the agent supplies every Apollo host:port.
 
 **Connect / Disconnect** *(Phase 2+)*
 - `lance connect [--monitors <list>] [--options "<moonlight-options>"]`
-  - `--monitors <list>` — comma-separated 1-indexed monitor IDs. Default: all
-    physical monitors.
+  - `--monitors <list>` — comma-separated monitor references, each a 1-indexed ID
+    **or a monitor name** (`--monitors "1,U28E590"`). Default: all physical monitors.
   - Moonlight passthrough examples: `--bitrate <kbps>`, `--video-codec
     <HEVC|H264|AV1>`, `--fps <n>`, `--resolution <WxH>`, etc.
 - `lance disconnect [--slots <list>] [--keep-running] [--purge]`
@@ -124,8 +124,10 @@ no port math; the agent supplies every Apollo host:port.
     default stop); Moonlight is still killed. Use case: quick reconnect without re-launching Apollo.
     Mutually exclusive with `--purge`; `--purge` wins if both are given (warns).
   - `--purge` — stop Apollo, kill Moonlight, then deallocate the slot. Slot 0 excluded.
-- `lance monitors` — list physical monitors on the local machine (ID, name, resolution,
-  position, primary flag). No agent interaction. Used to pick IDs for `--monitors`.
+- `lance monitors` — list physical monitors on the local machine (ID, monitor name,
+  device name, resolution, refresh rate, position, primary flag). No agent interaction.
+  Used to pick the ids or names that key `--monitors`, `--monitor-options` and
+  `monitorOptions`.
 
 
 ## Flows
@@ -142,10 +144,14 @@ no port math; the agent supplies every Apollo host:port.
 
 Precondition: Moonlight executable exists; client can reach the agent.
 
-1. **Resolve target monitors → ordered list (count N).** An invalid (out-of-range)
-   monitor id → log, drop it, continue. A **duplicate** id → fast-fail (user input
-   error). Position *i* in the list maps to slot *i* and supplies that slot's
-   `--resolution` (see step 5). Default (no `--monitors`): all physical monitors.
+1. **Resolve target monitors → ordered list (count N).** Each entry is an **id or a
+   monitor name** (see SPEC "Monitor keys"), resolved to an id before anything else.
+   A reference that matches no monitor → log, drop it, continue; a name matching
+   **two** monitors → fast-fail (ambiguous). A **duplicate** → fast-fail, *judged after
+   resolution* so `1,U28E590` naming one screen is caught rather than claiming two
+   slots. Nothing usable at all → fast-fail. Position *i* in the list maps to slot *i*
+   and supplies that slot's `--resolution` (see step 5). Default (no `--monitors`):
+   all physical monitors, in enumeration order.
 2. **`GET /health` + `GET /slots`.** Count free slots (`Allocated` or `Running`,
    not `Connected`) and total slots. Compute available capacity = free +
    (maxSlots − total). If N > capacity → exit 2 `no_free_slots` (pool full,

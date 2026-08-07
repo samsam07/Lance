@@ -166,8 +166,9 @@ IDs for `--monitors` and keys for `monitorOptions` / `--monitor-options`.
 
 ### Monitor keys
 
-Keys in `monitorOptions` and `--monitor-options` resolve as **all-digits → monitor id;
-otherwise → monitor name**:
+Every user-written reference to a monitor — `--monitors`, `monitorOptions` and
+`--monitor-options` — resolves the same way: **all-digits → monitor id; otherwise →
+monitor name**.
 
 - Name matching is **exact and case-insensitive**, against the friendly name *or* the
   device name (`\\.\DISPLAY2`). Substring matching is deliberately not supported — it
@@ -176,17 +177,23 @@ otherwise → monitor name**:
   `--monitors` precedent for unknown ids.
 - A name matching **more than one** monitor (two panels of the same model) **fails
   fast**, listing the ids and telling the user to key by id.
-- Two keys resolving to the **same** monitor — `"1"` and `"01"`, or an id and that
-  monitor's name in `monitorOptions` — **fail fast** for the config map. On the CLI,
-  repeated `--monitor-options` for one monitor **append** instead, whichever form the
-  key took.
+- Two references resolving to the **same** monitor — `"1"` and `"01"`, or an id and
+  that monitor's name — **fail fast** in `--monitors` and in `monitorOptions`. The
+  check is made **after** resolution, so `--monitors 1,U28E590` naming one screen is
+  caught rather than silently claiming two slots. On the CLI, repeated
+  `--monitor-options` for one monitor **append** instead, whichever form the key took.
+
+Names may contain spaces (`BenQ GW2480`), so quote the whole value:
+`--monitors "BenQ GW2480,U28E590"`. `--monitors` splits on commas only, so a monitor
+name containing a comma cannot be used — address it by id.
 
 Ids are stable only within one enumeration: unplugging or reordering displays can
 shift them, so a per-monitor option would then land on the wrong screen. Names do not
 have that failure mode and are the safer key where a monitor has one.
 
 `lance connect [--monitors <list>]` — Phase 2 client-driven connect. `--monitors`
-is comma-separated 1-indexed physical monitor IDs; default: all physical monitors
+is a comma-separated list of monitor references, each a 1-indexed id **or a monitor
+name** (see "Monitor keys"); default: all physical monitors, in enumeration order
 (requires OS display enumeration). Includes free-slot check (exit 2 if no capacity).
 
 `lance disconnect [--session-id <id>] [--keep-running] [--purge]` — kill Moonlight,
