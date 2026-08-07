@@ -321,6 +321,22 @@ public sealed class MoonlightOptionsTests
         Assert.Equal(["--bitrate", "10000"], result.ByMonitorId[expectedId]);
     }
 
+    [Theory]
+    [InlineData("  U28E590  ")]
+    [InlineData("\tU28E590")]
+    [InlineData("  3  ")]
+    public void ParseConfigEntries_KeyWithSurroundingWhitespace_StillResolves(string key)
+    {
+        // A JSON key carries whatever whitespace the file has, and an id would have
+        // been tolerated by int.TryParse while a name silently missed.
+        Dictionary<string, string[]> entries = new() { [key] = ["--bitrate", "40000"] };
+
+        MonitorOptionsResult result = MoonlightOptions.ParseConfigEntries(entries, NamedMonitors);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["--bitrate", "40000"], result.ByMonitorId[3]);
+    }
+
     [Fact]
     public void ParseConfigEntries_DeviceNameKey_AlsoResolves()
     {

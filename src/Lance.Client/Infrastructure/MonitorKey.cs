@@ -12,8 +12,13 @@ internal readonly record struct MonitorKeyResolution(int? MonitorId, string? Err
 // drift apart between them. A key is either an id ("3") or a name ("U28E590").
 internal static class MonitorKey
 {
-    public static MonitorKeyResolution Resolve(string key, IReadOnlyList<MonitorInfo> monitors, string source)
+    public static MonitorKeyResolution Resolve(string rawKey, IReadOnlyList<MonitorInfo> monitors, string source)
     {
+        // Trimmed here rather than at each call site so every route in gets the same
+        // treatment — a JSON key carries whatever whitespace the file has, and
+        // int.TryParse would tolerate it for an id while a name silently missed.
+        string key = rawKey.Trim();
+
         // An id is taken at face value. Whether that monitor exists is the caller's
         // business: `--monitors` still needs to accept ids when display detection
         // failed entirely.
