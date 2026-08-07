@@ -293,6 +293,38 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      clearer); prefer meaningful, clean messages and reserve tables for data that is
      genuinely tabular. Goal: both sides show what happened, clearly, with no
      clutter. Follows the CONVENTIONS "Logging messages" rule.
+   - **Stream tuning — per-monitor Moonlight options.** Design locked in
+     `docs/STREAM_TUNING_SPEC.md` (all decisions closed; folds into
+     ARCHITECTURE/SPEC as each sub-slice lands). Fixes the P1 stutter: one shared
+     `--bitrate` across a 1080p/1440p/4K set oversubscribed the agent's uplink.
+     - **2.1 — Rename + stale-option cleanup.** ✅ **Done.** `defaultFlags` →
+       `defaultOptions` (hard rename, prerelease); `--yuv444`, `--no-vsync`,
+       `--bitrate 80000` and `--fps 60` removed from the config, the samples and the
+       hardcoded fallback. `--yuv444` was the measured cause of the client dropping
+       off its D3D11VA fast path onto a Vulkan fallback decoder.
+     - **2.2 — Per-monitor options (by id).** ✅ **Done.** `remoteClient.monitorOptions`
+       + repeatable `--monitor-options "<id>=<options>"`; the layer merge
+       (config → CLI, general → specific) with the generated `--resolution` moved to
+       layer 0 so it can be overridden; warnings for options aimed at a monitor
+       outside the connect, and for monitors left unserved by a partial launch.
+     - **2.3 — Refresh rate + generated `--fps`.** ✅ **Done.** `dmDisplayFrequency`
+       (offset 184) in `MonitorInfo`, a `Refresh` column in `lance monitors`, and an
+       emitted `--fps min(refresh, 60)` at layer 0 — omitted when the rate is unknown
+       (Windows reports 0/1 for "hardware default"). Verified against real hardware:
+       a 144 Hz and a 60 Hz panel both read correctly. Linux refresh rate deferred —
+       `[DEFER-LINUX-REFRESH]`, see Slice 5.
+     - **2.4 — Auto-bitrate.** ✅ **Done.** `bitrateMode` config + `--bitrate-mode` CLI
+       (`high`/`balanced`/`conservative`/`manual`/a bits-per-pixel number, guarded to
+       0.01–1.0 so a kbps value cannot be mistaken for one); the bits-per-pixel
+       derivation off the *streamed* resolution, the §4.2 precedence table, the 60fps
+       arithmetic cap and its warnings. Default `balanced`; a config with an explicit
+       `--bitrate` and no mode is unaffected.
+     - **2.5 — Monitor names.** ✅ **Done.** EDID friendly names via the Windows CCD
+       API (`QueryDisplayConfig` + `DisplayConfigGetDeviceInfo`, joined to the GDI
+       enumeration; no WMI, which is not AOT-safe), the Xrandr output name on Linux, a
+       `Monitor` column in `lance monitors`, and key resolution accepting an id or an
+       exact case-insensitive name. Unknown name → warn and skip; ambiguous name (two
+       identical panels) → fast-fail. Verified against real hardware.
    - *(Further items added as discovered.)*
 
 3. **Agent service / daemon install.** *(Pulled forward from Phase 4.)*
@@ -328,6 +360,11 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      0,X,Y,-1,-1` to move by title, or `XMoveWindow` via X11 P/Invoke. Prefer
      `wmctrl` (no P/Invoke); fall back gracefully if unavailable. Requires
      `[DEFER-LINUX-WINDETECT]` to be done first (need the title to target the window).
+   - `[DEFER-LINUX-REFRESH]` — Monitor refresh rate on Linux. `XRRMonitorInfo` has no
+     rate; derive it via `XRRGetScreenResourcesCurrent` → output → crtc →
+     `XRRModeInfo`, then `dotClock / (hTotal × vTotal)`. Needs real Linux hardware to
+     verify the struct layouts. Until then `lance monitors` shows `—` and no `--fps`
+     is generated there.
    - **Pure Wayland support for `lance monitors`.** Current Linux path uses
      Xrandr 1.5 via `libX11`/`libXrandr` — requires X11 or XWayland. Pure
      Wayland (no XWayland) needs the `xdg-output` or `wlr-output-management`

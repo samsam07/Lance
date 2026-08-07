@@ -146,8 +146,44 @@ logged and the next id proceeds; the command exits 0 only if every id succeeded,
 else exit 1. An **unreachable agent short-circuits** the loop (exit 3) rather than
 timing out once per remaining id. `--force` on `deallocate` applies to every id.
 
-`lance monitors` — list local physical monitors (ID, name, resolution, position,
-primary flag). No agent required. Use to pick IDs for `--monitors`.
+`lance monitors` — list local physical monitors: **ID, monitor name, device name,
+resolution, refresh rate, position, primary flag**. No agent required. Use it to pick
+IDs for `--monitors` and keys for `monitorOptions` / `--monitor-options`.
+
+> **Refresh rate** comes from `DEVMODE.dmDisplayFrequency` (offset 184) on Windows and
+> is a whole number — a 59.94 Hz panel reports 59. Windows uses **0 or 1 to mean "the
+> hardware default"**, so both are treated as *unknown* and shown as `—`; no `--fps`
+> is generated for such a monitor. Unknown is also the state of every monitor on
+> Linux — `[DEFER-LINUX-REFRESH]`.
+>
+> **Monitor name** is the EDID friendly name ("BenQ GW2480", "Optix MAG27CQ"). On
+> Windows it comes from the CCD API — `GetDisplayConfigBufferSizes` →
+> `QueryDisplayConfig` → `DisplayConfigGetDeviceInfo(GET_TARGET_NAME)` for
+> `monitorFriendlyDeviceName`, joined to the GDI enumeration via `GET_SOURCE_NAME`'s
+> `viewGdiDeviceName`. WMI is not an option: `System.Management` is not AOT-safe. On
+> Linux the Xrandr output name (`HDMI-1`) serves. Any failure degrades to no name,
+> and the monitor stays addressable by id.
+
+### Monitor keys
+
+Keys in `monitorOptions` and `--monitor-options` resolve as **all-digits → monitor id;
+otherwise → monitor name**:
+
+- Name matching is **exact and case-insensitive**, against the friendly name *or* the
+  device name (`\\.\DISPLAY2`). Substring matching is deliberately not supported — it
+  is silently ambiguous across similar models.
+- A key matching **no** monitor is a **warning** and is skipped, matching the
+  `--monitors` precedent for unknown ids.
+- A name matching **more than one** monitor (two panels of the same model) **fails
+  fast**, listing the ids and telling the user to key by id.
+- Two keys resolving to the **same** monitor — `"1"` and `"01"`, or an id and that
+  monitor's name in `monitorOptions` — **fail fast** for the config map. On the CLI,
+  repeated `--monitor-options` for one monitor **append** instead, whichever form the
+  key took.
+
+Ids are stable only within one enumeration: unplugging or reordering displays can
+shift them, so a per-monitor option would then land on the wrong screen. Names do not
+have that failure mode and are the safer key where a monitor has one.
 
 `lance connect [--monitors <list>]` — Phase 2 client-driven connect. `--monitors`
 is comma-separated 1-indexed physical monitor IDs; default: all physical monitors
@@ -178,9 +214,13 @@ the Info/Debug request/connection noise; a lower level (`"Debug"`/`"Information"
 opens the web stack; `"off"`/`"none"` drops framework logs entirely.
 
 **Client — `lance.json`**: `agent{url,token,timeoutSeconds}`,
-`remoteClient{executable,defaultFlags}`, `ui{color}`, `logging{level,filePath}`.
-`remoteClient.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI flags
-append after `defaultFlags` (later args win in Moonlight). TLS cert validation is
+`remoteClient{executable,defaultOptions,monitorOptions,bitrateMode}`, `ui{color}`,
+`logging{level,filePath}`. `remoteClient.bitrateMode` selects bitrate sizing (see
+"Bitrate sizing"; unset = `balanced`). `remoteClient.monitorOptions` is an optional map of
+**monitor key → option token array**, applied to that monitor only (layer 2 above).
+See "Monitor keys" for how a key resolves.
+`remoteClient.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI options
+append after `defaultOptions` (later args win in Moonlight). TLS cert validation is
 unconditionally disabled in Phase 2 (self-signed cert); `agent.url` must use `https://`.
 
 ### Linux file-path conventions `[DEFER-PATHS]`
@@ -206,15 +246,85 @@ The client launches one Moonlight per slot, using **that slot's Apollo host+port
 returned by the agent (the client does no port math):
 
 ```
-moonlight stream <slot.Host>:<slot.Port> Desktop [defaultFlags…] [--resolution <WxH>] [--options tokens…]
+moonlight stream <slot.Host>:<slot.Port> Desktop [--resolution <WxH>] [defaultOptions…] [monitorOptions[id]…] [--options…] [--monitor-options[id]…]
 ```
 - `slot.Host` / `slot.Port` come from `SlotDto` as returned by the agent — one
   Moonlight per slot. Port is always explicit. The client never derives these values.
 - Stream name is `Desktop`.
-- **Arg order (later wins in Moonlight):** `defaultFlags` from config → per-monitor
-  `--resolution <WxH>` (from the mapped monitor; omitted if display detection failed)
-  → `--options` tokens (whitespace-split). So per-monitor resolution overrides the
-  config default, and `--options` overrides everything.
+- **Arg order (later wins in Moonlight)** — config before CLI, general before
+  specific:
+
+  | Layer | Source | Scope |
+  |---|---|---|
+  | 0 | generated `--resolution <WxH>` from the mapped monitor (omitted if display detection failed) | one monitor |
+  | 0 | generated `--fps <min(refreshRate, 60)>` (omitted when the rate is unknown) | one monitor |
+  | 1 | `remoteClient.defaultOptions` | all monitors |
+  | 2 | `remoteClient.monitorOptions[<id>]` | one monitor |
+  | 3 | `--options` (whitespace-split) | all monitors |
+  | 4 | `--monitor-options "<id>=<options>"` (repeatable) | one monitor |
+  | 5 | derived `--bitrate <kbps>` (automatic modes only — see below) | one monitor |
+
+  Layer 0 is **generated, and deliberately emitted first so any later layer overrides
+  it** — e.g. `"monitorOptions": { "3": ["--resolution", "2560x1440"] }` streams a 4K
+  panel at 1440p, cutting that stream's encoder load and bandwidth by ~55%.
+  **Generated `--fps` ceiling: 60.** A 144 Hz panel receives `--fps 60`; a desktop
+  gains little from the extra frames while the agent's encoder and uplink pay for all
+  of them. Streaming above 60 is done explicitly, via `--fps` in any layer 1–4.
+
+### Bitrate sizing
+
+Each stream's bitrate is sized from the pixels it actually carries, rather than one
+value shared by monitors of different resolutions. Selected by
+`remoteClient.bitrateMode` or `--bitrate-mode` (**the flag wins**):
+
+| Mode | Behaviour | bits/pixel |
+|---|---|---|
+| `high` | automatic | 0.16 |
+| `balanced` | automatic — **default** | 0.10 |
+| `conservative` | automatic | 0.06 |
+| *a number* | automatic, caller-supplied | as given; **must be 0.01–1.0**, else exit 1 |
+| `manual` | no derivation — the bitrate is whatever the options say | — |
+
+A bare number is **bits per pixel, never kbps**; the 0.01–1.0 guard is what stops
+`--bitrate-mode 20000` ("20 Mbps") being read as 20000 bits per pixel.
+
+**Formula:** `kbps = round-to-nearest-1000( width × height × fps × bitsPerPixel / 1000 )`,
+floor 1000. `width × height` is the **streamed** resolution (after any layer override,
+so lowering a 4K panel to 1440p also lowers its bitrate); `fps` is the effective frame
+rate **capped at 60** for the arithmetic only — the stream still runs at whatever
+`--fps` says, and exceeding 60 logs a warning that the budget is 60fps-equivalent.
+
+| Tier | 1080p60 | 1440p60 | 4K60 |
+|---|---|---|---|
+| `high` | 20 Mbps | 35 Mbps | 80 Mbps |
+| `balanced` | 12 Mbps | 22 Mbps | 50 Mbps |
+| `conservative` | 7 Mbps | 13 Mbps | 30 Mbps |
+
+**Precedence against an explicit `--bitrate`.** The derived value applies *unless* an
+explicit `--bitrate` survives the merge at a layer **≥** the layer that set the mode.
+Explicit wins ties. Mode source layers: `--bitrate-mode` = **3**, `bitrateMode` config
+= **1**, unset = **0**.
+
+| `--bitrate-mode` | `bitrateMode` | explicit `--bitrate` | Result |
+|---|---|---|---|
+| — | — | — | automatic `balanced` |
+| — | — | present | explicit used, nothing derived *(no warning — the ordinary case)* |
+| — | set | absent | automatic at the config mode |
+| — | set | present | explicit wins + warn |
+| set | any | absent | automatic at the flag's mode |
+| set | any | present in config (layers 1–2) | derived overrides + warn |
+| set | any | present on the CLI (layers 3–4) | explicit wins + warn |
+
+Consequence: a config carrying an explicit `--bitrate` and no mode keeps working
+untouched — automatic sizing is opted into by **removing** the flag.
+- **`defaultOptions` carries no `--bitrate`, no `--fps` and no `--yuv444`.** 4:4:4
+  forces HEVC Range Extensions, which many GPUs cannot decode on their fast path — it
+  silently drops the client onto a slower fallback decoder (validated 2026-08-05: an
+  RTX 2060 SUPER logged `GPU doesn't support HEVC Main 444 8-bit decoding via
+  D3D11VA` and fell back to Vulkan video). `--bitrate` and `--fps` are omitted so
+  each stream is sized from the monitor it targets; one value shared across monitors
+  of different resolutions mis-allocates bandwidth. With neither set, Moonlight
+  applies its own per-resolution defaults until `STREAM_TUNING_SPEC` slice 2.4 lands.
 - Spawn as **detached children**; track PID only.
 - **Launch gate (connect):** a slot is launched only if no running Moonlight already
   targets its `<host>:<port>` (command-line match) — prevents duplicates, enables reconnect.
@@ -420,9 +530,17 @@ enumeration is deferred (`[VERIFY-APOLLO]`).
 
 ### New CLI surface
 
-- `lance connect [--monitors <list>] [--options "<flags>"] [--session-id <id>] [--hook <path> …]`
+- `lance connect [--monitors <list>] [--options "<flags>"] [--monitor-options "<id>=<options>" …] [--bitrate-mode <mode>] [--session-id <id>] [--hook <path> …]`
   — now a **foreground daemon** (blocks until the session ends). `--hook` is
   repeatable and additive over the client config `hooks` list.
+  `--monitor-options` is repeatable, one monitor per occurrence, and **appends** when
+  given more than once for the same monitor. A malformed entry (no `=`, or an empty
+  monitor) fails fast (exit 1). The key is an id or a monitor name — see "Monitor
+  keys". A monitor that is valid but not part of this connect is a **warning**, and its
+  options are ignored.
+  `--bitrate-mode` is global (it applies to every stream in the connect) and overrides
+  `remoteClient.bitrateMode`. An unrecognised mode, or a number outside 0.01–1.0, fails
+  fast (exit 1). See "Bitrate sizing".
 - `lance disconnect [--session-id <id>] [--keep-running] [--purge] [<host:port> …]`
   — session-based; kill Moonlights (agent fast-path to resolve the session's slots,
   or explicit `host:port` fallback when the agent is unreachable). Ending a session

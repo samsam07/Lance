@@ -25,8 +25,11 @@ internal static class SessionDaemon
         string agentUrl,
         string? token,
         string sessionId,
-        IReadOnlyList<MonitorInfo?> targetMonitors,
+        IReadOnlyList<TargetMonitor> targetMonitors,
         string[] optionTokens,
+        IReadOnlyDictionary<int, string[]> configMonitorOptions,
+        IReadOnlyDictionary<int, string[]> cliMonitorOptions,
+        BitrateSelection bitrateMode,
         IReadOnlyList<HookFileRef> hookReferences,
         CancellationToken cancellationToken)
     {
@@ -53,9 +56,11 @@ internal static class SessionDaemon
         }
 
         Log.Information("Session {SessionId}: {Count} slot(s) ready.", sessionId, slots.Length);
+        WarnUnservedMonitors(targetMonitors, slots.Length);
 
         using JobObject job = new();
-        List<LaunchedMoonlight> launched = LaunchMoonlights(config, slots, targetMonitors, optionTokens, job);
+        List<LaunchedMoonlight> launched = LaunchMoonlights(
+            config, slots, targetMonitors, optionTokens, configMonitorOptions, cliMonitorOptions, bitrateMode, job);
         if (launched.Count == 0)
         {
             // Degraded policy: nothing launched → fail, run no client hooks. The agent
@@ -90,19 +95,55 @@ internal static class SessionDaemon
         return ExitCodes.Success;
     }
 
+    // Fewer slots than monitors is the documented partial-success outcome, but the user
+    // should still be told which screens they are not getting.
+    private static void WarnUnservedMonitors(IReadOnlyList<TargetMonitor> targetMonitors, int slotCount)
+    {
+        if (slotCount >= targetMonitors.Count)
+        {
+            return;
+        }
+
+        List<int> unserved = [];
+        for (int i = slotCount; i < targetMonitors.Count; i++)
+        {
+            unserved.Add(targetMonitors[i].Id);
+        }
+
+        Log.Warning(
+            "{Requested} monitor(s) requested but only {Started} slot(s) started — monitor(s) {Unserved} will not be connected",
+            targetMonitors.Count, slotCount, string.Join(", ", unserved));
+    }
+
     private static List<LaunchedMoonlight> LaunchMoonlights(
-        ClientConfig config, SlotDto[] slots, IReadOnlyList<MonitorInfo?> targetMonitors, string[] optionTokens, JobObject job)
+        ClientConfig config,
+        SlotDto[] slots,
+        IReadOnlyList<TargetMonitor> targetMonitors,
+        string[] optionTokens,
+        IReadOnlyDictionary<int, string[]> configMonitorOptions,
+        IReadOnlyDictionary<int, string[]> cliMonitorOptions,
+        BitrateSelection bitrateMode,
+        JobObject job)
     {
         string executable = config.RemoteClient.Executable;
-        string[] defaultFlags = config.RemoteClient.DefaultFlags;
+        string[] defaultOptions = config.RemoteClient.DefaultOptions;
 
         List<LaunchedMoonlight> launched = [];
         for (int i = 0; i < slots.Length; i++)
         {
             SlotDto slot = slots[i];
-            MonitorInfo? monitor = i < targetMonitors.Count ? targetMonitors[i] : null;
+            TargetMonitor? target = i < targetMonitors.Count ? targetMonitors[i] : null;
 
-            Process? process = TryLaunchMoonlight(executable, slot, monitor, defaultFlags, optionTokens);
+            OptionLayers layers = new()
+            {
+                DefaultOptions = defaultOptions,
+                MonitorOptions = target is null ? [] : configMonitorOptions.GetValueOrDefault(target.Id, []),
+                CliOptions = optionTokens,
+                CliMonitorOptions = target is null ? [] : cliMonitorOptions.GetValueOrDefault(target.Id, [])
+            };
+            string[] options = MoonlightOptions.Build(target?.Monitor, target?.Id ?? slot.Id, layers, bitrateMode);
+
+            Process? process = TryLaunchMoonlight(executable, slot, options);
             if (process is null)
             {
                 Log.Warning("Failed to launch Moonlight for slot {Id} at {Host}:{Port}", slot.Id, slot.Host, slot.Port);
@@ -110,7 +151,7 @@ internal static class SessionDaemon
             }
 
             job.Assign(process);
-            launched.Add(new LaunchedMoonlight(process, slot, monitor));
+            launched.Add(new LaunchedMoonlight(process, slot, target?.Monitor));
             Log.Information("Moonlight launched for slot {Id} at {Host}:{Port} (PID {Pid})", slot.Id, slot.Host, slot.Port, process.Id);
         }
 
@@ -176,7 +217,7 @@ internal static class SessionDaemon
         }
     }
 
-    private static Process? TryLaunchMoonlight(string executable, SlotDto slot, MonitorInfo? monitor, string[] defaultFlags, string[] optionTokens)
+    private static Process? TryLaunchMoonlight(string executable, SlotDto slot, string[] options)
     {
         try
         {
@@ -190,20 +231,9 @@ internal static class SessionDaemon
             startInfo.ArgumentList.Add($"{slot.Host}:{slot.Port}");
             startInfo.ArgumentList.Add("Desktop");
 
-            foreach (string flag in defaultFlags)
+            foreach (string option in options)
             {
-                startInfo.ArgumentList.Add(flag);
-            }
-
-            if (monitor is MonitorInfo resolution)
-            {
-                startInfo.ArgumentList.Add("--resolution");
-                startInfo.ArgumentList.Add($"{resolution.Width}x{resolution.Height}");
-            }
-
-            foreach (string token in optionTokens)
-            {
-                startInfo.ArgumentList.Add(token);
+                startInfo.ArgumentList.Add(option);
             }
 
             Log.Debug("Launching: {Executable} {Args}", executable, string.Join(" ", startInfo.ArgumentList));

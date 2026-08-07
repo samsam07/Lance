@@ -27,14 +27,26 @@ public sealed record AgentConnectionConfig
 public sealed record RemoteClientConfig
 {
     public string Executable { get; init; } = OperatingSystem.IsWindows() ? "moonlight.exe" : "moonlight";
-    public string[] DefaultFlags { get; init; } = [
-        "--fps", "60",
+
+    // Deliberately minimal. --bitrate and --fps are omitted so each stream can be
+    // sized from the monitor it targets rather than from one value shared by every
+    // monitor. --yuv444 is omitted because 4:4:4 forces HEVC Range Extensions, which
+    // many GPUs cannot decode on their fast path — it silently drops the client onto
+    // a slower fallback decoder.
+    public string[] DefaultOptions { get; init; } = [
         "--video-codec", "HEVC",
-        "--bitrate", "80000",
-        "--no-vsync",
-        "--capture-system-keys", "fullscreen",
-        "--yuv444"
+        "--capture-system-keys", "fullscreen"
     ];
+
+    // Extra options for one monitor, keyed by the id `lance monitors` reports. Applied
+    // after DefaultOptions, so a per-monitor value wins. Referring to a monitor by name
+    // is designed but not built yet — see docs/STREAM_TUNING_SPEC.md §8.
+    public Dictionary<string, string[]>? MonitorOptions { get; init; }
+
+    // How each stream's bitrate is chosen: "high" | "balanced" | "conservative" |
+    // "manual" | a bits-per-pixel number. Unset means "balanced". Overridden by
+    // --bitrate-mode. See docs/STREAM_TUNING_SPEC.md §4.
+    public string? BitrateMode { get; init; }
 }
 
 public sealed record UiConfig

@@ -26,26 +26,34 @@ internal static class MonitorsCommand
             Table table = new Table()
                 .Border(TableBorder.Minimal)
                 .AddColumn(new TableColumn("ID").RightAligned())
-                .AddColumn("Name")
-                .AddColumn(new TableColumn("Resolution").RightAligned())
-                .AddColumn("Position")
+                .AddColumn(new TableColumn("Monitor").NoWrap())
+                .AddColumn(new TableColumn("Device").NoWrap())
+                .AddColumn(new TableColumn("Resolution").RightAligned().NoWrap())
+                .AddColumn(new TableColumn("Refresh").RightAligned().NoWrap())
+                .AddColumn(new TableColumn("Position").NoWrap())
                 .AddColumn("Primary");
 
             foreach (MonitorInfo m in monitors)
             {
+                string friendly = m.HasFriendlyName ? m.FriendlyName : "—";
                 string resolution = $"{m.Width}×{m.Height}";
+                string refresh = m.HasRefreshRate ? $"{m.RefreshRate} Hz" : "—";
                 string position = $"{m.X},{m.Y}";
                 string primary = m.IsPrimary ? "[green]✓[/]" : string.Empty;
 
                 table.AddRow(
                     m.Id.ToString(),
+                    Markup.Escape(friendly),
                     Markup.Escape(m.Name),
                     resolution,
+                    refresh,
                     position,
                     primary);
             }
 
             console.Write(table);
+            console.WriteLine();
+            console.MarkupLine("[grey]Use the ID or the Monitor name to key --monitor-options and remoteClient.monitorOptions.[/]");
             return Task.FromResult(ExitCodes.Success);
         });
 

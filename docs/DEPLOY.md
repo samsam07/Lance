@@ -65,7 +65,7 @@ on Linux.
 3. Edit `lance.json`:
    - Set `agent.url` to `http://<remote-machine-ip>:9876`.
    - Adjust `remoteClient.executable` if Moonlight is not on PATH.
-   - Tune `remoteClient.defaultFlags` (fps, codec, bitrate) for your setup.
+   - Tune `remoteClient.defaultOptions` (codec, capture behaviour) for your setup.
 
 ## First run
 

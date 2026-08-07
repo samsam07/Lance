@@ -6,18 +6,14 @@
   },
   "remoteClient": {
     "executable": "C:\\Program Files\\Moonlight Game Streaming\\moonlight.exe",
-    "defaultFlags": [
-      "--fps",
-      "60",
+    "defaultOptions": [
       "--video-codec",
       "HEVC",
-      "--bitrate",
-      "80000",
-      "--no-vsync",
       "--capture-system-keys",
-      "fullscreen",
-      "--yuv444"
-    ]
+      "fullscreen"
+    ],
+    "bitrateMode": "balanced",
+    "monitorOptions": {}
   },
   "ui": {
     "color": true

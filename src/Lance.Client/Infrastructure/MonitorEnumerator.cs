@@ -12,6 +12,29 @@ internal sealed record MonitorInfo
     public required int X { get; init; }
     public required int Y { get; init; }
     public required bool IsPrimary { get; init; }
+
+    // Hz, whole numbers only (a 59.94 Hz panel reports 59). Windows uses 0 and 1 to
+    // mean "the hardware default", so anything <= 1 counts as unknown — as does every
+    // monitor on Linux for now ([DEFER-LINUX-REFRESH]).
+    public int RefreshRate { get; init; }
+
+    // The monitor's EDID name ("GW2480") where the platform can supply one, so options
+    // can be keyed by something recognisable instead of an enumeration index. Empty
+    // when unavailable. On Linux this is the Xrandr output name (`HDMI-1`).
+    public string FriendlyName { get; init; } = string.Empty;
+
+    public bool HasRefreshRate => RefreshRate > 1;
+
+    public bool HasFriendlyName => FriendlyName.Length > 0;
+
+    // True when this monitor answers to `key` — its friendly name or its device name,
+    // compared whole and case-insensitively. Substring matching would be friendlier
+    // but silently ambiguous across similar models.
+    public bool MatchesName(string key)
+    {
+        return (HasFriendlyName && string.Equals(FriendlyName, key, StringComparison.OrdinalIgnoreCase))
+            || string.Equals(Name, key, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal static class MonitorEnumerator
@@ -37,6 +60,7 @@ internal static class MonitorEnumerator
     {
         List<MonitorInfo> monitors = new();
         int index = 1;
+        IReadOnlyDictionary<string, string> friendlyNames = MonitorFriendlyNames.ByDeviceName();
 
         DISPLAY_DEVICE dd = new() { cb = DisplayDeviceCbSize };
 
@@ -56,7 +80,9 @@ internal static class MonitorEnumerator
                         Height = (int)dm.dmPelsHeight,
                         X = dm.dmPositionX,
                         Y = dm.dmPositionY,
-                        IsPrimary = (dd.StateFlags & DisplayDevicePrimary) != 0
+                        IsPrimary = (dd.StateFlags & DisplayDevicePrimary) != 0,
+                        RefreshRate = (int)dm.dmDisplayFrequency,
+                        FriendlyName = friendlyNames.GetValueOrDefault(dd.DeviceName, string.Empty)
                     });
                 }
             }
@@ -102,6 +128,8 @@ internal static class MonitorEnumerator
         [FieldOffset(80)] public int dmPositionY;   // POINTL.y
         [FieldOffset(172)] public uint dmPelsWidth;
         [FieldOffset(176)] public uint dmPelsHeight;
+        // 180 is dmDisplayFlags / dmNup (a union); frequency follows it.
+        [FieldOffset(184)] public uint dmDisplayFrequency;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -160,6 +188,14 @@ internal static class MonitorEnumerator
                     XRRMonitorInfo info = Marshal.PtrToStructure<XRRMonitorInfo>(itemPtr);
 
                     string name = GetAtomName(display, info.Name);
+
+                    // RefreshRate is left unknown ([DEFER-LINUX-REFRESH]): XRRMonitorInfo
+                    // does not carry it, and deriving it means walking
+                    // XRRGetScreenResourcesCurrent -> output -> crtc -> XRRModeInfo and
+                    // computing dotClock / (hTotal * vTotal). That is byte-exact struct
+                    // interop with no Linux hardware to verify against, and a wrong
+                    // layout segfaults. Unknown simply means no --fps is generated,
+                    // which is the behaviour Linux already had.
                     monitors.Add(new MonitorInfo
                     {
                         Id = i + 1,
@@ -168,7 +204,10 @@ internal static class MonitorEnumerator
                         Height = info.Height,
                         X = info.X,
                         Y = info.Y,
-                        IsPrimary = info.Primary != 0
+                        IsPrimary = info.Primary != 0,
+                        // Xrandr output names ("HDMI-1", "DP-2") are already the
+                        // recognisable handle, so they serve as the friendly name too.
+                        FriendlyName = name
                     });
                 }
 

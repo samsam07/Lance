@@ -120,7 +120,10 @@ first run without a config file, built-in defaults apply and a warning is logged
    - Set `agent.url` to `https://<remote-machine-ip>:9876`.
    - Set `agent.token` to match `auth.token` from `lance-agent.json`.
    - Adjust `remoteClient.executable` if Moonlight is not on PATH.
-   - Tune `remoteClient.defaultFlags` for your setup (fps, codec, bitrate).
+   - Tune `remoteClient.defaultOptions` for your setup (codec, capture behaviour).
+     Leave `--bitrate` and `--fps` out unless you need fixed values — Lance sizes both
+     per monitor, from its resolution and refresh rate. Use `bitrateMode` to say how
+     generous that should be. See `docs/STREAM_TUNING_SPEC.md`.
 
 ---
 
@@ -139,8 +142,21 @@ lance connect
 # Connect to specific monitors only (1-indexed, comma-separated)
 lance connect --monitors 1,3
 
-# Connect with custom Moonlight flags (appended after the defaults; later flags win)
+# Connect with custom Moonlight options for every stream (later options win)
 lance connect --monitors 1,2 --options "--fps 120 --bitrate 100000"
+
+# Per-monitor options — give each screen its own budget instead of one shared value.
+# Repeatable; the key is an ID or a monitor name, both shown by `lance monitors`.
+lance connect --monitors 1,2,3 \
+  --monitor-options "1=--bitrate 10000" \
+  --monitor-options "BenQ GW2480=--bitrate 40000"
+
+# Stream a 4K panel at 1440p to cut its encoder load and bandwidth by ~55%
+lance connect --monitor-options "3=--resolution 2560x1440"
+
+# Bitrate is sized per monitor from its pixel rate. Pick how generous that is:
+#   high | balanced (default) | conservative | manual | a bits-per-pixel number
+lance connect --bitrate-mode conservative
 
 # Give the session an explicit id and run extra hook files (repeatable)
 lance connect --session-id office --hook ~/hooks/vox.client.json
@@ -307,7 +323,11 @@ Place beside `lance.exe` / `lance`, or specify with `--config <path>`.
   },
   "remoteClient": {
     "executable": "C:\\Program Files\\Moonlight Game Streaming\\moonlight.exe",
-    "defaultFlags": ["--fps", "60", "--video-codec", "HEVC", "--bitrate", "80000", "--no-vsync"]
+    "defaultOptions": ["--video-codec", "HEVC", "--capture-system-keys", "fullscreen"],
+    "bitrateMode": "balanced",
+    "monitorOptions": {
+      "U28E590": ["--resolution", "2560x1440"]
+    }
   },
   "ui": { "color": true },
   "hooks": [

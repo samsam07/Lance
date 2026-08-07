@@ -160,10 +160,28 @@ Precondition: Moonlight executable exists; client can reach the agent.
    existing Moonlight instances for the slot using two methods in order (see
    Moonlight detection below); if any match → skip (no duplicate, enables
    reconnect). Otherwise launch
-   `moonlight stream <host>:<port> Desktop [defaultFlags…] [--resolution <WxH>] [--options…]`.
-   Per-monitor `--resolution` comes from the mapped monitor (the client requests it;
-   Apollo's per-slot resolution is only a fallback). `--options` tokens are appended
-   last so they win. *fails if:* a launch fails → warn, continue (partial success).
+   `moonlight stream <host>:<port> Desktop [--resolution <WxH>] [defaultOptions…] [monitorOptions…] [--options…] [--monitor-options…]`.
+   Options are layered **config before CLI, general before specific**, and Moonlight
+   takes the last occurrence of a repeated option — so a per-monitor value beats a
+   global one, and the command line beats the config file. Per-monitor `--resolution`
+   **and `--fps`** are *generated* from the mapped monitor and emitted **first**,
+   making them defaults that any layer can override (Apollo's per-slot resolution is
+   only a fallback). The generated frame rate is the monitor's own refresh rate
+   **capped at 60** — a desktop gains little above that while the agent's encoder and
+   uplink pay for every extra frame — and is omitted entirely when the rate is unknown.
+   Each stream's **bitrate is then sized from the pixels it actually carries** — the
+   streamed resolution times the effective frame rate times a bits-per-pixel figure
+   chosen by `bitrateMode` / `--bitrate-mode` — instead of one value shared by monitors
+   of different resolutions. An explicit `--bitrate` outranks the derivation when it is
+   set at the same level or above (config-level mode loses to any explicit value; a
+   command-line mode beats a config one). A config carrying an explicit `--bitrate` and
+   no mode therefore behaves exactly as before.
+   See SPEC "Moonlight launch" and "Bitrate sizing" for the layer table, the tier
+   values and the full precedence rules. *fails if:* a launch fails → warn,
+   continue (partial success).
+   When fewer slots start than monitors were requested, the client **warns which
+   monitors will not be connected** — slots are fungible, so the surviving slots serve
+   the first N monitors and the remainder go unserved.
 6. **Position each Moonlight window** (Windows; `[DEFER-LINUX-WINPOS]`). After all
    launches, placement tasks run in parallel: poll `Process.MainWindowHandle` for each
    PID (200 ms intervals, 5 s timeout); once non-zero, call `SetWindowPos` with
@@ -502,6 +520,13 @@ dropped; unnecessary given local event dispatch + probe-based detection.
   Linux needs `wmctrl -lp` or X11 P/Invoke. Method 1 (command-line host:port)
   still covers Lance-launched instances on Linux. See "Moonlight instance
   detection" above.
+- `[DEFER-LINUX-REFRESH]` **Phase 3** — Monitor refresh rate on Linux. Windows reads
+  `DEVMODE.dmDisplayFrequency`; `XRRMonitorInfo` does not carry the rate, so Linux
+  needs `XRRGetScreenResourcesCurrent` → output → crtc → `XRRModeInfo`, then
+  `dotClock / (hTotal × vTotal)`. Deferred because that is byte-exact struct interop
+  with no Linux hardware to verify against and a wrong layout segfaults. Consequence:
+  no `--fps` is generated on Linux (its prior behaviour), and `lance monitors` shows
+  `—`. Belongs with the other Linux client completions (Phase 3 Slice 5).
 - `[DEFER-LINUX-WINPOS]` **Phase 3** — Moonlight monitor placement on Linux.
   Windows uses `SetWindowPos(SWP_NOSIZE)` to move the window origin to the target
   monitor; SDL then fullscreens on the correct display. Linux equivalent: `wmctrl

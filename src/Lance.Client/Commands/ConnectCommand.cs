@@ -26,12 +26,22 @@ internal static class ConnectCommand
         {
             Description = "Path to a hook file to run on session events (repeatable; added on top of config hooks)"
         };
+        Option<string[]> monitorOptionsOption = new("--monitor-options")
+        {
+            Description = "Extra Moonlight options for one monitor as \"<id>=<options>\" (repeatable, e.g. \"1=--bitrate 10000\")"
+        };
+        Option<string?> bitrateModeOption = new("--bitrate-mode")
+        {
+            Description = "How each stream's bitrate is sized: high | balanced | conservative | manual | a bits-per-pixel number (default: balanced)"
+        };
 
         Command command = new("connect", "Start a session: launch one Moonlight per monitor and block until it ends");
         command.Add(monitorsOption);
         command.Add(optionsOption);
         command.Add(sessionIdOption);
         command.Add(hookOption);
+        command.Add(monitorOptionsOption);
+        command.Add(bitrateModeOption);
 
         command.SetAction(async (ParseResult pr, CancellationToken ct) =>
         {
@@ -51,9 +61,35 @@ internal static class ConnectCommand
 
             Log.Debug("Targeting agent at {AgentUrl}", agentUrl);
 
-            IReadOnlyList<MonitorInfo?>? targetMonitors = ResolveTargetMonitors(pr.GetValue(monitorsOption));
+            IReadOnlyList<MonitorInfo> allMonitors = MonitorEnumerator.Enumerate();
+
+            IReadOnlyList<TargetMonitor>? targetMonitors = ResolveTargetMonitors(pr.GetValue(monitorsOption), allMonitors);
             if (targetMonitors is null)
             {
+                return ExitCodes.Generic;
+            }
+
+            MonitorOptionsResult configMonitorOptions = MoonlightOptions.ParseConfigEntries(config.RemoteClient.MonitorOptions, allMonitors);
+            if (!configMonitorOptions.IsSuccess)
+            {
+                Log.Error("Invalid remoteClient.monitorOptions in the config — {Reason}", configMonitorOptions.ErrorMessage);
+                return ExitCodes.ConfigResolutionFailed;
+            }
+
+            MonitorOptionsResult cliMonitorOptions = MoonlightOptions.ParseCliEntries(pr.GetValue(monitorOptionsOption) ?? [], allMonitors);
+            if (!cliMonitorOptions.IsSuccess)
+            {
+                Log.Error("Invalid --monitor-options — {Reason}", cliMonitorOptions.ErrorMessage);
+                return ExitCodes.Generic;
+            }
+
+            WarnUnusedMonitorOptions(targetMonitors, configMonitorOptions.ByMonitorId, "remoteClient.monitorOptions");
+            WarnUnusedMonitorOptions(targetMonitors, cliMonitorOptions.ByMonitorId, "--monitor-options");
+
+            BitrateModeResult bitrateMode = ResolveBitrateMode(pr.GetValue(bitrateModeOption), config.RemoteClient.BitrateMode);
+            if (!bitrateMode.IsSuccess)
+            {
+                Log.Error("Invalid bitrate mode — {Reason}", bitrateMode.ErrorMessage);
                 return ExitCodes.Generic;
             }
 
@@ -68,17 +104,65 @@ internal static class ConnectCommand
             IReadOnlyList<HookFileRef> hookReferences = BuildHookReferences(config, globals.GetConfigDirectory(), pr.GetValue(hookOption) ?? []);
 
             Log.Information("Connecting {Count} monitor(s) as session {SessionId}", targetMonitors.Count, sessionId);
-            return await SessionDaemon.RunAsync(config, agentUrl, token, sessionId, targetMonitors, optionTokens, hookReferences, ct);
+            return await SessionDaemon.RunAsync(
+                config, agentUrl, token, sessionId, targetMonitors, optionTokens,
+                configMonitorOptions.ByMonitorId, cliMonitorOptions.ByMonitorId,
+                bitrateMode.Selection, hookReferences, ct);
         });
 
         return command;
     }
 
-    // Returns the ordered per-position monitor list (null = requested id not found locally),
-    // or null if the input is invalid (empty selection / duplicate id).
-    private static IReadOnlyList<MonitorInfo?>? ResolveTargetMonitors(string? monitorsStr)
+    // The command line beats the config file. Each source also carries the option layer
+    // it sits at, which decides whether an explicit --bitrate outranks the mode
+    // (STREAM_TUNING_SPEC §4.2): the flag is a global CLI setting (layer 3), the config
+    // field a global config setting (layer 1), and an unset mode the implicit default
+    // (layer 0, so any explicit --bitrate wins).
+    private static BitrateModeResult ResolveBitrateMode(string? cliMode, string? configMode)
     {
-        IReadOnlyList<MonitorInfo> allMonitors = MonitorEnumerator.Enumerate();
+        if (!string.IsNullOrWhiteSpace(cliMode))
+        {
+            return BitrateModes.Parse(cliMode, sourceLayer: 3);
+        }
+
+        if (!string.IsNullOrWhiteSpace(configMode))
+        {
+            return BitrateModes.Parse(configMode, sourceLayer: 1);
+        }
+
+        return BitrateModes.Parse(null, sourceLayer: 0);
+    }
+
+    // Options aimed at a monitor that is not part of this connect do nothing. That is
+    // almost always a typo or a stale config, so say so rather than staying silent.
+    private static void WarnUnusedMonitorOptions(
+        IReadOnlyList<TargetMonitor> targetMonitors, IReadOnlyDictionary<int, string[]> monitorOptions, string source)
+    {
+        if (monitorOptions.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<int> connectedIds = [];
+        foreach (TargetMonitor target in targetMonitors)
+        {
+            connectedIds.Add(target.Id);
+        }
+
+        foreach (int monitorId in monitorOptions.Keys)
+        {
+            if (!connectedIds.Contains(monitorId))
+            {
+                Log.Warning("{Source} targets monitor {Id}, which is not part of this connect — those options are ignored", source, monitorId);
+            }
+        }
+    }
+
+    // Returns the ordered per-position target list (Monitor is null when the requested
+    // id is not present locally), or null if the input is invalid (empty selection /
+    // duplicate id).
+    private static IReadOnlyList<TargetMonitor>? ResolveTargetMonitors(string? monitorsStr, IReadOnlyList<MonitorInfo> allMonitors)
+    {
         Dictionary<int, MonitorInfo> monitorById = [];
         foreach (MonitorInfo monitor in allMonitors)
         {
@@ -104,10 +188,10 @@ internal static class ConnectCommand
             return null;
         }
 
-        List<MonitorInfo?> targets = [];
+        List<TargetMonitor> targets = [];
         foreach (int id in targetIds)
         {
-            targets.Add(monitorById.GetValueOrDefault(id));
+            targets.Add(new TargetMonitor { Id = id, Monitor = monitorById.GetValueOrDefault(id) });
         }
 
         return targets;
