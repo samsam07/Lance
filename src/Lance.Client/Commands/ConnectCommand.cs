@@ -118,7 +118,7 @@ internal static class ConnectCommand
 
     // The command line beats the config file. Each source also carries the option layer
     // it sits at, which decides whether an explicit --bitrate outranks the mode
-    // (STREAM_TUNING_SPEC §4.2): the flag is a global CLI setting (layer 3), the config
+    // (docs/design/stream-tuning.md §4.2): the flag is a global CLI setting (layer 3), the config
     // field a global config setting (layer 1), and an unset mode the implicit default
     // (layer 0, so any explicit --bitrate wins).
     private static BitrateModeResult ResolveBitrateMode(string? cliMode, string? configMode)

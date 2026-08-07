@@ -87,10 +87,14 @@ the template, append it after the last line. Preserve template line ordering.
 > **Phase 2: HTTPS + optional bearer token auth.** JSON bodies, ISO-8601 UTC
 > timestamps, integer ids.
 >
-> **TLS:** agent listens on HTTPS only. Self-signed cert generated on first run
-> (`lance-agent.pfx` beside binary, or `tls.certPath`). Client unconditionally
-> skips TLS cert validation in Phase 2 — cert validation will be configurable
-> when PEM support is added (later phase).
+> **TLS:** agent listens on HTTPS only, via `listenOptions.UseHttps()` with no
+> arguments — i.e. the **ASP.NET Core developer certificate**. Run
+> `dotnet dev-certs https --trust` once on the agent machine. Lance does **not**
+> generate or manage a certificate of its own. `tls.certPath` is still *accepted* by
+> the deserializer (`TlsConfig`) but is **read by nothing**, and is **no longer shipped
+> in the sample config** — it is inert surface awaiting `[DEFER-TLS-PINNING]` (Phase 3
+> Slice 8). Client unconditionally skips TLS cert validation — validation becomes
+> configurable when PEM support lands.
 >
 > **Auth:** if `auth.token` is set in `lance-agent.json`, all non-`/health`
 > requests must carry `Authorization: Bearer <token>` matching that value.
@@ -126,7 +130,7 @@ the template, append it after the last line. Preserve template line ordering.
   running → `409 slot_not_running`; `?redirect=1` → `302`.
 
 
-## Client CLI (Phase 1)
+## Client CLI
 
 **Config resolution:** see "Agent ↔ client target resolution" above.
 
@@ -134,8 +138,11 @@ the template, append it after the last line. Preserve template line ordering.
 
 Token resolution (first match wins): `--token` CLI flag → `lance.json` `agent.token` → no token sent (works if agent has no token configured).
 
-**Commands:** `lance slots`, `lance status`, `lance config <ids>`
-(opens config URL: `xdg-open` / shell-execute; on browser-open failure print URL).
+**Commands:** `lance slots`, `lance status`, `lance monitors`, `lance config <ids>`
+(opens config URL: `xdg-open` / shell-execute; on browser-open failure print URL),
+`lance allocate <count>`, `lance start|stop|deallocate <ids>`, and the session
+commands `lance connect` / `lance disconnect` (see "New CLI surface" for their full
+option sets).
 
 **Multi-id slot commands:** `start`, `stop`, `deallocate`, and `config` take a
 **comma-separated list of slot ids** (`<ids>`, e.g. `1,2,3`; a single id like `1`
@@ -201,8 +208,9 @@ stop Apollo (unless `--keep-running`), optionally deallocate. See ARCHITECTURE.m
 
 > **OS display enumeration:** Windows uses `EnumDisplayDevicesW` + `EnumDisplaySettingsExW`
 > (`user32.dll`). Linux uses Xrandr 1.5 via `libX11`/`libXrandr` P/Invoke — requires
-> X11 or XWayland. Pure Wayland without XWayland is not supported in Phase 2; native
-> Wayland enumeration (`xdg-output` / `wlr-output-management`) is Phase 3 Slice 2.
+> X11 or XWayland. Pure Wayland without XWayland is not supported; native
+> Wayland enumeration (`xdg-output` / `wlr-output-management`) is **Phase 3 Slice 5**
+> (Linux client completions).
 
 **Exit codes:** 0 success · 1 generic · 2 no free slots (all running slots are connected) · 3 agent unreachable · 4 agent error · 5 Moonlight launch failed · 6 slot not in
 required state · 7 config resolution failed.
@@ -210,7 +218,6 @@ required state · 7 config resolution failed.
 ## Config files
 
 **Agent — `lance-agent.json`** (beside binary): `listen{host,port}`,
-`tls{certPath}` (optional; defaults to `lance-agent.pfx` beside binary),
 `auth{token}` (optional; omit to disable auth),
 `remoteServer{installDir,configDir,executable,templateConfigName,startupTimeoutSeconds}`,
 `slots{maxCount,portStep,stopTimeoutSeconds,namePrefix,templateName,configNamePattern}`,
@@ -228,7 +235,8 @@ opens the web stack; `"off"`/`"none"` drops framework logs entirely.
 See "Monitor keys" for how a key resolves.
 `remoteClient.executable`: `moonlight.exe` (Win) / `moonlight` (Linux). CLI options
 append after `defaultOptions` (later args win in Moonlight). TLS cert validation is
-unconditionally disabled in Phase 2 (self-signed cert); `agent.url` must use `https://`.
+unconditionally disabled on the client; `agent.url` **must** use `https://` — the
+agent has no HTTP listener.
 
 ### Linux file-path conventions `[DEFER-PATHS]`
 
@@ -239,10 +247,13 @@ proper daemon or service install is added. Deferred items:
 | Item | Current path (Phase 2) | Linux standard |
 |---|---|---|
 | Agent config file | beside binary (`AppContext.BaseDirectory`) | `/etc/lance-agent/` (system) or `~/.config/lance-agent/` (user) |
-| TLS certificate (`lance-agent.pfx`) | beside binary | `/etc/lance-agent/` or `/var/lib/lance-agent/` |
 | Agent log file (`lance-agent.log`, relative) | cwd / beside binary | `/var/log/lance-agent/` |
 | Client config file (`lance.json`) | beside binary | `~/.config/lance/` (XDG) |
 | Apollo install / config paths (agent defaults) | `ProgramFiles\Apollo` | empty string; `[VERIFY-APOLLO]` unresolved |
+
+No TLS-certificate row: the agent uses the ASP.NET Core dev cert from the user's
+certificate store and manages no certificate file of its own. A path returns here
+when `[DEFER-TLS-PINNING]` lands.
 
 Agent paths: defer to **Phase 3** (agent service/daemon install slice). Client config
 path: defer to **Phase 3** (XDG compliance).
@@ -330,8 +341,8 @@ untouched — automatic sizing is opted into by **removing** the flag.
   RTX 2060 SUPER logged `GPU doesn't support HEVC Main 444 8-bit decoding via
   D3D11VA` and fell back to Vulkan video). `--bitrate` and `--fps` are omitted so
   each stream is sized from the monitor it targets; one value shared across monitors
-  of different resolutions mis-allocates bandwidth. With neither set, Moonlight
-  applies its own per-resolution defaults until `STREAM_TUNING_SPEC` slice 2.4 lands.
+  of different resolutions mis-allocates bandwidth. With neither set, Lance generates
+  `--fps` at layer 0 and derives `--bitrate` per monitor (see "Bitrate sizing").
 - Spawn as **detached children**; track PID only.
 - **Launch gate (connect):** a slot is launched only if no running Moonlight already
   targets its `<host>:<port>` (command-line match) — prevents duplicates, enables reconnect.
@@ -362,12 +373,13 @@ before running Lance. Lance only ever manages Apollo instances **it launches
 directly** (`sunshine.exe "<config>"`, no watchdog). Auto-managing the service is
 deferred — `[DEFER-SVC]`.
 
-**Listen address:** the agent calls `WebHost.UseUrls("http://{host}:{port}")` from
-`listen` config immediately after `CreateSlimBuilder`. This explicitly overrides
-`ASPNETCORE_URLS`, `launchSettings.json`, and any other environment-injected URL.
-Phase 1 is HTTP only — the HTTPS profile in `launchSettings.json` must not be
-used and will fail if it reaches Kestrel. Phase 2 replaces `UseUrls` with proper
-Kestrel HTTPS/TLS configuration.
+**Listen address:** the agent calls `builder.WebHost.ConfigureKestrel(...)` right
+after `CreateSlimBuilder`, resolving `listen.host` to an `IPAddress` (`0.0.0.0`/`*`
+→ `IPAddress.Any`, `::` → `IPv6Any`, an unparseable value → `Loopback`) and calling
+`serverOptions.Listen(address, listen.port, o => o.UseHttps())`. This explicitly
+overrides `ASPNETCORE_URLS`, `launchSettings.json`, and any other
+environment-injected URL. **HTTPS only** — there is no HTTP listener.
+*(The Phase-1 `UseUrls("http://…")` form was replaced in Phase 2.)*
 
 **Startup:** read config → (Windows) require admin, fail fast if not elevated →
 set up logging → validate config (Apollo exe, config dir, template file) fail-fast
@@ -382,9 +394,10 @@ adopted, else no PID) → serve.
    config path; the `sunshine_{id}.conf` name pins the slot id directly.
 2. **Bound port (fallback):** if the command line isn't readable, match the
    process's bound port against each slot's expected port (`template_port −
-   N×portStep`). `[DEFER-WIN-ADOPT]` — **Phase 1 only implements step 1**
-   (Linux via `/proc/{pid}/cmdline`; Windows adoption is a full no-op). Step 2
-   port-matching and Windows adoption deferred to Phase 2.
+   N×portStep`). `[DEFER-WIN-ADOPT]` **Resolved (Phase 2 Slice 1).** Windows
+   adoption enumerates via `Process.GetProcessesByName` and attributes by config
+   name then observed port, mirroring the Linux path (`/proc/{pid}/cmdline`); both
+   steps are implemented on both platforms.
 3. **Non-standard (neither matches):** the process runs a config that is not a
    standard `sunshine_{id}.conf` and binds no expected port → adopt as a
    **non-standard slot** (reserved id ≥1000, observed port, `IsAdopted = true`,
@@ -425,7 +438,7 @@ protected endpoint.)*
 
 > Verified/decided values for the session/event/hook subsystem. Behavior lives in
 > ARCHITECTURE ("Sessions & tool orchestration"); design rationale in
-> `docs/TOOL_ORCHESTRATION_SPEC.md`. Values marked **(proposed)** are new surface
+> `docs/design/tool-orchestration.md`. Values marked **(proposed)** are new surface
 > introduced during Slice 0 doc reconciliation and await owner sign-off.
 
 **Session id.** Client-minted default `Guid.NewGuid().ToString("N")` (32 lowercase

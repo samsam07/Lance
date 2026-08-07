@@ -169,7 +169,7 @@ public sealed class MoonlightOptionsTests
     // — Build: derived bitrate ————————————————————————————————
 
     [Theory]
-    // The tier table in STREAM_TUNING_SPEC §4.1, checked against the real formula.
+    // The tier table in docs/design/stream-tuning.md §4.1, checked against the real formula.
     [InlineData(1920, 1080, 0.16, 20000)]
     [InlineData(2560, 1440, 0.16, 35000)]
     [InlineData(3840, 2160, 0.16, 80000)]

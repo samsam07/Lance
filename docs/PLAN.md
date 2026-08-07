@@ -99,14 +99,16 @@ Unit and integration tests are deferred — no test code is written during Phase
 
 **Goal:** a fully functional personal tool. Auth/TLS secures the API, slot
 Connected state enables free-slot detection, and `connect`/`disconnect` use the
-full client-driven flow with `--monitors` and `--slots`.
+full client-driven flow with `--monitors` and `--slots` (the latter replaced by
+`--session-id` once sessions landed in Phase 3).
 
 **In scope**
 - Auth + TLS on the agent API.
 - Agent: slot `Connected` state — TCP probe on slot base port at query time;
   `SlotDto.Status` gains `"Connected"`.
 - Client: full `connect` (client-driven, `--monitors`, free-slot check),
-  `disconnect` (`--slots`, `--keep-running`, `--purge`), enhanced `status`.
+  `disconnect` (`--slots`, `--keep-running`, `--purge` — `--slots` later replaced by
+  `--session-id` in Phase 3 Slice 1.7), enhanced `status`.
 - Platform completions deferred from Phase 1: Windows process adoption
   (`[DEFER-WIN-ADOPT]`), Linux graceful SIGTERM stop (`[DEFER-LINUX-SIGTERM]`).
 - Resolution of `[INVESTIGATE-STOP]` (Apollo graceful stop — fix the stop path).
@@ -137,7 +139,10 @@ Same rules as Phase 1: one slice at a time, review gate after each.
 
 2. **Auth + TLS (agent + client).**
    - Agent: HTTPS via self-signed cert generated on first run (`tls.certPath`,
-     defaults to `lance-agent.pfx` beside binary). `auth.token` config field —
+     defaults to `lance-agent.pfx` beside binary). **Superseded later in Phase 2:**
+     Lance's own cert management was replaced by the ASP.NET Core developer
+     certificate (`UseHttps()` with no arguments); `tls.certPath` is now inert.
+     `auth.token` config field —
      if set, all non-`/health` endpoints require `Authorization: Bearer <token>`;
      if absent, API is open. Auth enforced by a lightweight middleware (not the
      ASP.NET auth stack). `GET /health` always unauthenticated.
@@ -167,7 +172,10 @@ Same rules as Phase 1: one slice at a time, review gate after each.
      injected; `--options` tokens appended last. After launches, `WindowPlacer` moves
      each window's origin to the target monitor with `SetWindowPos(SWP_NOSIZE)`
      (Windows; `[DEFER-LINUX-WINPOS]`); SDL fullscreens on the correct display.
-   - `lance disconnect [--slots <list>] [--keep-running] [--purge]` — per-slot:
+   - `lance disconnect [--slots <list>] [--keep-running] [--purge]` — per-slot.
+     **Superseded in Phase 3 Slice 1.7:** `--slots` was replaced by `--session-id`
+     (plus positional `host:port` as the agent-unreachable fallback), and the
+     session-end default inverted to *stop* the slots. Mechanics below still apply:
      (1) kill Moonlight by `<host>:<port>` command-line match (always); (2) stop
      Apollo on agent (unless `--keep-running`); (3) deallocate (if `--purge`, Slot 0
      excluded). `--purge` wins over `--keep-running` with a warning.
@@ -210,7 +218,7 @@ watchdog — pulled forward from Phase 4).
 - **Sessions & tool orchestration subsystem** *(✅ code-complete — see Slice 1)* — the
   session/event/hook layer that lets sidecar tools (`vox`, `clipline`, keystroke relay)
   run with coordinated setup/teardown on both machines. Design locked in
-  `docs/TOOL_ORCHESTRATION_SPEC.md`, integrated into ARCHITECTURE ("Sessions & tool
+  `docs/design/tool-orchestration.md`, integrated into ARCHITECTURE ("Sessions & tool
   orchestration") + SPEC ("Sessions & orchestration"). This is the **major body of
   Phase 3** and supersedes the earlier *tentative* session-layer sketch (which was
   monitor↔slot mapping only).
@@ -237,46 +245,47 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
    Behavior in ARCHITECTURE "Sessions & tool orchestration"; values in SPEC
    "Sessions & orchestration". Sub-slices:
 
-   - **1.0 — Docs reconciliation.** ✅ **Done.** Integrate the spec, resolve/flag
+   - **1.0 — Docs reconciliation.** Integrate the spec, resolve/flag
      conflicts (`[VALIDATE-UDP]`, `[SESSION-ENDPOINT]`, disconnect reconciliation),
      produce this breakdown.
-   - **1.1 — `[VALIDATE-UDP]` detection probe + logging.** ✅ **Done (2026-07-11).**
+   - **1.1 — `[VALIDATE-UDP]` detection probe + logging.** *(validated 2026-07-11.)*
      UDP endpoint-presence probe (owning PID + resolved ports; base+offset map in a
      host-adapter seam) + transition logging, validated against a live stream.
      Offsets confirmed base `+9/+10/+11`; connect ~1s, ungraceful teardown ~6–7s. The
      TCP `Connected` probe was retired — `SlotDto.Status` now derives from UDP
      presence. Key finding: Lance's kill-based `disconnect` is ungraceful, so the
      clean-disconnect ping (1.7) is the only fast disconnect path.
-   - **1.2 — Agent: session model + record persistence.** ✅ **Done.** State machine
+   - **1.2 — Agent: session model + record persistence.** State machine
      `Provisioned→Connected→Ended`; atomic session record (temp+rename) at
      `%ProgramData%\Lance\sessions\<id>.json`; persist-before-setup /
      delete-after-teardown invariant.
-   - **1.3 — Hook engine (shared).** ✅ **Done.** New `Lance.Hooks` project: JSON
+   - **1.3 — Hook engine (shared).** New `Lance.Hooks` project: JSON
      discovery/parse, `${VAR}` substitution, `ArgumentList` spawn (no shell),
      `async`/`onError`/`timeoutSeconds`/`workingDir`, priority + array ordering,
      env-payload injection.
-   - **1.4 — Agent: connect handshake + `session_started` + detection loop.** ✅ **Done.**
+   - **1.4 — Agent: connect handshake + `session_started` + detection loop.**
      Vet `session_id` (collision → refuse), session-aware free-slot pick, persist, run
      agent hooks, respond; background watch fires `provision_timeout` / `probe_watch` →
      `session_ended`. New `POST /sessions` endpoint (`[SESSION-ENDPOINT]` resolved).
-   - **1.5 — Agent: crash recovery / reconciliation.** ✅ **Done.** On startup, after
+   - **1.5 — Agent: crash recovery / reconciliation.** On startup, after
      adoption and before the listener opens, `SessionReconciler` probes each surviving
      record's slots: any connected → re-adopt (Connected); all idle → replay the
      snapshotted teardown (`source=reconcile`) and delete the record. Point-in-time
      probe (no grace); Apollo is never stopped.
-   - **1.6 — Client: foreground daemon connect.** ✅ **Done.** `lance connect` blocks
+   - **1.6 — Client: foreground daemon connect.** `lance connect` blocks
      until the session ends: `POST /sessions` handshake, launch one Moonlight per slot
      in a kill-on-close Job Object (Win) / tree-kill (Linux), degraded-launch policy,
      `session_started`/`session_ended` client hooks, block watching streams, Ctrl-C /
      last-exit teardown. `--session-id` + repeatable `--hook`.
-   - **1.7 — Client: disconnect + clean-disconnect ping.** ✅ **Done.** Agent gained
+   - **1.7 — Client: disconnect + clean-disconnect ping.** Agent gained
      `GET /sessions`, `GET /sessions/{id}`, `DELETE /sessions/{id}` (ping →
      `session_ended(ping)`). `lance disconnect [--session-id] [--keep-running]
      [--purge] [host:port…]` — agent fast-path resolves a session's slots, `host:port`
      args are the unreachable-agent fallback; kills Moonlights, pings the agent,
      `--purge` also stops+deallocates (Slot 0 excluded). The daemon also pings on its
      own teardown.
-   - **1.8 — Reference `vox` hooks + end-to-end validation.** ✅ **Hooks shipped.**
+   - **1.8 — Reference `vox` hooks + end-to-end validation.** **Hooks shipped; the
+     end-to-end run is the one piece of this slice still outstanding.**
      `samples/hooks/`: `vox.agent.json` + `vox.client.json` (the reference `vox`
      flow) and `smoke.json` (dependency-free — appends to a log on each event, for
      validating the mechanism + crash-recovery replay without extra tooling).
@@ -293,39 +302,40 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      clearer); prefer meaningful, clean messages and reserve tables for data that is
      genuinely tabular. Goal: both sides show what happened, clearly, with no
      clutter. Follows the CONVENTIONS "Logging messages" rule.
-   - **Stream tuning — per-monitor Moonlight options.** Design locked in
-     `docs/STREAM_TUNING_SPEC.md` (all decisions closed; folds into
-     ARCHITECTURE/SPEC as each sub-slice lands). Fixes the P1 stutter: one shared
+   - **Stream tuning — per-monitor Moonlight options.** *(✅ Complete — 2.1–2.6 all
+     shipped; the end-to-end run of the stack is tracked in `TODO.md`.)* Design in
+     `docs/design/stream-tuning.md` (all decisions closed; folded into
+     ARCHITECTURE/SPEC as each sub-slice landed). Fixes the P1 stutter: one shared
      `--bitrate` across a 1080p/1440p/4K set oversubscribed the agent's uplink.
-     - **2.1 — Rename + stale-option cleanup.** ✅ **Done.** `defaultFlags` →
+     - **2.1 — Rename + stale-option cleanup.** `defaultFlags` →
        `defaultOptions` (hard rename, prerelease); `--yuv444`, `--no-vsync`,
        `--bitrate 80000` and `--fps 60` removed from the config, the samples and the
        hardcoded fallback. `--yuv444` was the measured cause of the client dropping
        off its D3D11VA fast path onto a Vulkan fallback decoder.
-     - **2.2 — Per-monitor options (by id).** ✅ **Done.** `remoteClient.monitorOptions`
+     - **2.2 — Per-monitor options (by id).** `remoteClient.monitorOptions`
        + repeatable `--monitor-options "<id>=<options>"`; the layer merge
        (config → CLI, general → specific) with the generated `--resolution` moved to
        layer 0 so it can be overridden; warnings for options aimed at a monitor
        outside the connect, and for monitors left unserved by a partial launch.
-     - **2.3 — Refresh rate + generated `--fps`.** ✅ **Done.** `dmDisplayFrequency`
+     - **2.3 — Refresh rate + generated `--fps`.** `dmDisplayFrequency`
        (offset 184) in `MonitorInfo`, a `Refresh` column in `lance monitors`, and an
        emitted `--fps min(refresh, 60)` at layer 0 — omitted when the rate is unknown
        (Windows reports 0/1 for "hardware default"). Verified against real hardware:
        a 144 Hz and a 60 Hz panel both read correctly. Linux refresh rate deferred —
        `[DEFER-LINUX-REFRESH]`, see Slice 5.
-     - **2.4 — Auto-bitrate.** ✅ **Done.** `bitrateMode` config + `--bitrate-mode` CLI
+     - **2.4 — Auto-bitrate.** `bitrateMode` config + `--bitrate-mode` CLI
        (`high`/`balanced`/`conservative`/`manual`/a bits-per-pixel number, guarded to
        0.01–1.0 so a kbps value cannot be mistaken for one); the bits-per-pixel
        derivation off the *streamed* resolution, the §4.2 precedence table, the 60fps
        arithmetic cap and its warnings. Default `balanced`; a config with an explicit
        `--bitrate` and no mode is unaffected.
-     - **2.5 — Monitor names.** ✅ **Done.** EDID friendly names via the Windows CCD
+     - **2.5 — Monitor names.** EDID friendly names via the Windows CCD
        API (`QueryDisplayConfig` + `DisplayConfigGetDeviceInfo`, joined to the GDI
        enumeration; no WMI, which is not AOT-safe), the Xrandr output name on Linux, a
        `Monitor` column in `lance monitors`, and key resolution accepting an id or an
        exact case-insensitive name. Unknown name → warn and skip; ambiguous name (two
        identical panels) → fast-fail. Verified against real hardware.
-     - **2.6 — Name references everywhere.** ✅ **Done.** `--monitors` accepts names
+     - **2.6 — Name references everywhere.** `--monitors` accepts names
        too, so all three monitor references share one resolver (`MonitorKey`) and
        cannot drift. Duplicate detection moved *after* resolution, so `1,U28E590`
        naming one screen fast-fails instead of claiming two slots. Selection logic
@@ -338,7 +348,7 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
    runs without an interactive login, instead of today's plain process. Covers
    install / uninstall / start / stop, running under the account and elevation the agent
    needs, and auto-restart on crash — which the orchestration design already leans on
-   (TOOL_ORCHESTRATION_SPEC: "the Windows service auto-restart makes host-state loss
+   (docs/design/tool-orchestration.md: "the Windows service auto-restart makes host-state loss
    rare"). `[VERIFY-APOLLO]` gates the Linux daemon.
    *(Architecture-zone: this changes the deployment model. Service host, install
    mechanism, and the run-as account/elevation are undecided — surface and get approval,

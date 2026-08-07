@@ -38,14 +38,14 @@ public sealed record RemoteClientConfig
         "--capture-system-keys", "fullscreen"
     ];
 
-    // Extra options for one monitor, keyed by the id `lance monitors` reports. Applied
-    // after DefaultOptions, so a per-monitor value wins. Referring to a monitor by name
-    // is designed but not built yet — see docs/STREAM_TUNING_SPEC.md §8.
+    // Extra options for one monitor, keyed by the id or the monitor name that
+    // `lance monitors` reports — both resolve through MonitorKey. Applied after
+    // DefaultOptions, so a per-monitor value wins. See docs/design/stream-tuning.md §8.
     public Dictionary<string, string[]>? MonitorOptions { get; init; }
 
     // How each stream's bitrate is chosen: "high" | "balanced" | "conservative" |
     // "manual" | a bits-per-pixel number. Unset means "balanced". Overridden by
-    // --bitrate-mode. See docs/STREAM_TUNING_SPEC.md §4.
+    // --bitrate-mode. See docs/design/stream-tuning.md §4.
     public string? BitrateMode { get; init; }
 }
 

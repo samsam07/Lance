@@ -4,7 +4,7 @@ using Serilog;
 namespace Lance.Client.Infrastructure;
 
 // A per-monitor option map (config `monitorOptions`, or repeated --monitor-options)
-// resolved down to monitor ids. See docs/STREAM_TUNING_SPEC.md §3 and §8.
+// resolved down to monitor ids. See docs/design/stream-tuning.md §3 and §8.
 internal sealed record MonitorOptionsResult
 {
     public IReadOnlyDictionary<int, string[]> ByMonitorId { get; init; } = new Dictionary<int, string[]>();
@@ -23,7 +23,7 @@ internal sealed record OptionLayers
 }
 
 // Builds the Moonlight argument list for one stream by appending option layers,
-// lowest precedence first (STREAM_TUNING_SPEC §3). Moonlight resolves a repeated
+// lowest precedence first (docs/design/stream-tuning.md §3). Moonlight resolves a repeated
 // option by taking its last occurrence, so Lance only has to emit the layers in
 // order — it never has to dedupe or rewrite what the user wrote.
 internal static class MoonlightOptions

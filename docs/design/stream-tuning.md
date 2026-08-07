@@ -1,15 +1,17 @@
 # Stream Tuning Spec — per-monitor Moonlight options
 
-Status: **DRAFT v3 — all decisions closed, awaiting final validation before
-implementation.** Nothing is implemented. v3 folds in the owner's rulings on T1–T10
-(2026-08-05) and on OPEN-1..4. One interpretation is flagged inline as
-`[CONFIRM]`; everything else is settled.
+Status: **IMPLEMENTED.** All decisions closed (owner's rulings on T1–T10, 2026-08-05,
+and OPEN-1..4), and **all sub-slices 2.1–2.6 have shipped** — see §12. The one
+remaining item is the end-to-end run of the whole stack, tracked in `TODO.md`.
 
-> **Target on acceptance.** Behavior → `ARCHITECTURE.md` (connect flow step 5);
-> values → `SPEC.md` ("Moonlight launch", "Config files", "New CLI surface"); slices
-> → `PLAN.md` (Phase 3 Slice 2). Retained afterwards as design rationale; when it
-> disagrees with the canonical docs, **ARCHITECTURE/SPEC win** (per CLAUDE.md).
-> Same lifecycle as `TOOL_ORCHESTRATION_SPEC.md`.
+> **Now design rationale only.** The canonical homes are: behavior →
+> `ARCHITECTURE.md` (connect flow step 5); values → `SPEC.md` ("Moonlight launch",
+> "Bitrate sizing", "Config files", "New CLI surface"); slices → `PLAN.md` (Phase 3
+> Slice 2). When this file disagrees with those, **ARCHITECTURE/SPEC win** (per
+> CLAUDE.md). Same lifecycle as `tool-orchestration.md`.
+>
+> Passages below written in the future tense ("gains", "will") describe work that has
+> since landed; they are kept as the record of *why* each choice was made.
 
 ## 1. Why
 
@@ -40,24 +42,22 @@ No compatibility shim and **no migration guard**: a config still saying
 `defaultFlags` is simply ignored by the deserializer, and that config's streams
 launch with no options. Prerelease, owner's call.
 
-> **Stale defaults to fix in the same change.** `ClientConfig.cs:30-37` hardcodes a
-> fallback `DefaultFlags` containing `--yuv444`, `--no-vsync` and `--bitrate 80000`,
-> so a config omitting the key reintroduces exactly the flags that caused the
-> Vulkan-decode fallback. The same stale values sit in `samples/lance.json` and
-> `dist/client/lance.json`. All three must be corrected.
+> **Stale defaults fixed in the same change (slice 2.1, done).** `ClientConfig.cs`
+> had hardcoded a fallback `DefaultFlags` containing `--yuv444`, `--no-vsync` and
+> `--bitrate 80000`, so a config omitting the key reintroduced exactly the flags that
+> caused the Vulkan-decode fallback. The same stale values sat in `samples/lance.json`
+> and `dist/client/lance.json`. All three were corrected.
 >
-> **`--bitrate` and `--fps` are removed outright**, not lowered. With no explicit
+> **`--bitrate` and `--fps` were removed outright**, not lowered. With no explicit
 > bitrate and no mode set, §4.2 row 1 applies and every stream derives at `balanced`;
 > `--fps` is dropped because the derivation reads the monitor's refresh rate (§7)
 > rather than a single shared value. Shipped `defaultOptions` is therefore just
 > `["--video-codec", "HEVC", "--capture-system-keys", "fullscreen"]`.
 >
-> **Interim gap until slice 2.4 lands.** Nothing sets bitrate or fps, so Moonlight
-> applies its own per-resolution defaults (~0.16 bits/pixel → ~135 Mbps across the
-> owner's three monitors, at Moonlight's own default frame rate). Better than
-> today's 240 Mbps, still above the ~84 Mbps target. A user who wants the target
-> immediately sets explicit values in `defaultOptions` (which infers `manual`) until
-> 2.4 ships. See §12.
+> **The interim gap is closed.** Between slices 2.1 and 2.4 nothing set bitrate or
+> fps, so Moonlight applied its own per-resolution defaults (~0.16 bits/pixel →
+> ~135 Mbps across the owner's three monitors). Since 2.4 shipped, every stream
+> derives its own budget and the `balanced` default lands at the ~84 Mbps target.
 
 ## 3. Layers — **SETTLED (T1)**
 
@@ -323,24 +323,24 @@ warning — *"3 monitors requested, 2 slots started; monitor 3 not connected."*
 ## 11. Non-goals
 
 - Apollo/agent-side encoder tuning (§9 — blocked, separate spec).
-- Auto-emitting `--fps` (§7).
-- Session-wide bandwidth budget (T6) — achievable via `--bitrate-mode` plus explicit
-  per-monitor values; recorded as backlog in `TODO.md`.
+- Session-wide bandwidth budget (T6) — **abandoned**; achievable in practice via
+  `--bitrate-mode` plus explicit per-monitor values.
 - Dynamic/adaptive bitrate mid-session — Moonlight already adapts; Lance sets the
   ceiling once at launch.
 
 ## 12. Implementation slices
 
 Ordered so each lands reviewable and useful on its own. Sub-slice 3 depends on 2
-(needs the merged options) and on 4 (needs the fps fallback).
+(needs the merged options) and on 4 (needs the fps fallback). **All shipped.**
 
 | # | Slice | Contents |
 |---|---|---|
-| 2.1 | **Rename + stale-flag cleanup** | `defaultFlags`→`defaultOptions` (hard, no guard); strip `--yuv444` / `--no-vsync` / `--bitrate 80000` from `ClientConfig.cs`, `samples/`, `dist/`; rename references in README, DEPLOY, SPEC, ARCHITECTURE |
+| 2.1 | **Rename + stale-flag cleanup** | `defaultFlags`→`defaultOptions` (hard, no guard); strip `--yuv444` / `--no-vsync` / `--bitrate 80000` from `ClientConfig.cs`, `samples/`, `dist/`; rename references in README, SPEC, ARCHITECTURE |
 | 2.2 | **Per-monitor options** | `monitorOptions` config + `--monitor-options` CLI, keyed by id; the layer-merge in §3; dropped-monitor warning (§10) |
-| 2.3 | **Refresh rate + generated `--fps`** | `dmDisplayFrequency` in `MonitorInfo`; Xrandr equivalent; `lance monitors` column; emit `--fps min(refresh, 60)` at layer 0 |
+| 2.3 | **Refresh rate + generated `--fps`** | `dmDisplayFrequency` in `MonitorInfo`; Xrandr equivalent; `lance monitors` column; emit `--fps min(refresh, 60)` at layer 0. Linux rate deferred — `[DEFER-LINUX-REFRESH]` |
 | 2.4 | **Auto-bitrate** | `bitrateMode` config + `--bitrate-mode` CLI; §4.2 precedence table; §4.3 derivation; clamp + warnings |
 | 2.5 | **Monitor names** *(deferred — scheduled at the end)* | CCD API friendly names; key resolution rules (§8) |
+| 2.6 | **Name references everywhere** | `--monitors` accepts names too; one shared resolver (`MonitorKey`) for all three references; duplicate detection moved after resolution |
 
 ## 13. Docs impact on acceptance
 
@@ -364,7 +364,7 @@ Ordered so each lands reviewable and useful on its own. Sub-slice 3 depends on 2
 | T3 | Mode inference and precedence | §4.2 table; warn on every supersede |
 | T4 | Default mode | `balanced`; existing configs infer `manual` and are unaffected |
 | T5 | Clamps | auto modes only; fixed 60 fps ceiling |
-| T6 | Session bandwidth budget | backlog in `TODO.md` |
+| T6 | Session bandwidth budget | *Abandoned* |
 | T6b | Refresh rate | fetched; feeds the math **and** a generated `--fps` |
 | T7 | Per-monitor `--resolution` override | free via layer 0 |
 | T8 | Config + CLI both exist and merge | subsumed by T1 |

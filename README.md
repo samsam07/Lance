@@ -6,8 +6,9 @@ Lance is a command-line tool for seamless **multi-monitor remote desktop** using
 one Apollo instance per monitor in parallel, so a single command opens or closes
 a full multi-monitor session.
 
-> **Status: Alpha** — fully functional for personal use. No service installer
-> yet; both binaries are run manually.
+> **Status: Beta** — fully functional for personal use, with sessions and hooks.
+> No service installer yet; both binaries are run manually, and the Apollo service
+> must be stopped by hand first.
 
 ---
 
@@ -99,9 +100,9 @@ dotnet run scripts/publish.cs [--keep-iis-artifacts]
      installation paths.
    - Set `auth.token` to a secret string to protect the API (recommended). Set it
      to `""` to run the API open with no authentication.
-   - `tls.certPath` is unused in the current release — HTTPS uses the ASP.NET Core
-     developer certificate. Run `dotnet dev-certs https --trust` once on the agent
-     machine if you have not already done so.
+   - HTTPS uses the ASP.NET Core developer certificate — run
+     `dotnet dev-certs https --trust` once on the agent machine if you have not
+     already done so. Lance manages no certificate of its own.
 3. Stop the Apollo service if it is running.
 4. Run as Administrator:
    ```
@@ -123,7 +124,7 @@ first run without a config file, built-in defaults apply and a warning is logged
    - Tune `remoteClient.defaultOptions` for your setup (codec, capture behaviour).
      Leave `--bitrate` and `--fps` out unless you need fixed values — Lance sizes both
      per monitor, from its resolution and refresh rate. Use `bitrateMode` to say how
-     generous that should be. See `docs/STREAM_TUNING_SPEC.md`.
+     generous that should be. See `docs/design/stream-tuning.md`.
 
 ---
 
@@ -164,14 +165,17 @@ lance connect --session-id office --hook ~/hooks/vox.client.json
 
 # --- Disconnect runs from a SEPARATE terminal (connect is blocking) ---
 
-# End one session by id — kills its Moonlights; the agent tears down its side.
-# Apollo is LEFT RUNNING on the remote by default (fast reconnect).
+# End one session by id — kills its Moonlights; the agent tears down its side and
+# STOPS the session's slots, bringing the remote virtual displays back down.
 lance disconnect --session-id office
 
 # End all active sessions
 lance disconnect
 
-# Also stop and deallocate the session's slots on the remote (Slot 0 excluded)
+# Leave Apollo running on the remote for a fast reconnect (opts out of the stop)
+lance disconnect --session-id office --keep-running
+
+# Also deallocate the session's slots on the remote (Slot 0 excluded)
 lance disconnect --session-id office --purge
 
 # Fallback when the agent is unreachable: kill Moonlights by host:port
@@ -216,8 +220,12 @@ sides end independently from their own signals:
   (a few seconds after a hard cut). If the agent itself crashes mid-session, it
   replays the pending teardown on restart.
 
-At session end the agent frees the slots but **leaves Apollo running** (fast
-reconnect); use `lance disconnect --purge` to stop and deallocate them too.
+At session end the agent frees the slots and **stops their Apollo instances**, so the
+remote's virtual displays come down rather than being left up to reconfigure its
+desktop. `lance disconnect --keep-running` opts out and leaves Apollo up for a fast
+reconnect; `--purge` additionally deallocates the slots (Slot 0 excluded). One
+exception: a session recovered by startup reconciliation runs its teardown but
+**leaves Apollo running**.
 
 **Hooks** are external commands that run on session events. Each side runs its own
 hooks from its own config — nothing crosses the wire. A hook file is JSON:
@@ -268,9 +276,6 @@ Place beside `lance-agent.exe`. Missing file → built-in defaults apply.
   "listen": {
     "host": "0.0.0.0",
     "port": 9876
-  },
-  "tls": {
-    "certPath": "lance-agent.pfx"
   },
   "auth": {
     "token": "ODlyrexDUv5jckPb7nUWBK9O"
@@ -340,11 +345,15 @@ Place beside `lance.exe` / `lance`, or specify with `--config <path>`.
 
 Full sample files are in [`samples/`](samples/).
 
-**Config file lookup** (first match wins):
+**Agent URL lookup** (first match wins):
 
-1. `-c` / `--config <path>` CLI flag
-2. `lance.json` beside the `lance` binary
-3. Exit 7 if neither yields a URL
+1. `-a` / `--agent <url>` CLI flag
+2. `-c` / `--config <path>` CLI flag → `agent.url` from that file
+3. `lance.json` beside the `lance` binary → `agent.url`
+4. Exit 7 if none of the above yield a URL
+
+The agent itself always reads `lance-agent.json` beside the `lance-agent` binary;
+if it is absent, built-in defaults apply and a warning is logged.
 
 ---
 
@@ -365,17 +374,25 @@ Full sample files are in [`samples/`](samples/).
 
 ## Notes
 
-- **Pairing slots:** each clone slot has its own Apollo identity and must be
-  paired with Moonlight individually before first use. Start the slot
-  (`lance start <id>`), open Moonlight and add the host on that slot's port
-  (`host:<port>`), complete the PIN pairing, then stop the slot
-  (`lance stop <id>`). Only needs doing once per slot.
+- **Pairing slots:** each clone slot has its own Apollo identity and must be paired
+  with Moonlight individually before first use. Slot 0 is already paired from your
+  initial Apollo setup. For each additional slot:
+  1. Start it — `lance start <id>`.
+  2. In Moonlight, add a new host at `<remote-ip>:<slot-port>`. Slot ports step
+     *down* from the template: slot 1 = template port − 1000, slot 2 = template
+     port − 2000, and so on. `lance slots` prints each slot's actual port.
+  3. Complete the PIN pairing flow.
+  4. Stop it — `lance stop <id>`.
+
+  Only needs doing once per slot. Note that `lance deallocate` removes a slot's
+  state file along with its config, so a deallocated slot must be paired again.
 - **Monitor placement:** on Windows, Lance automatically moves each Moonlight
   window to its target monitor after launch. On Linux, windows open on the
   primary monitor; manual placement is needed until Phase 3 adds Linux support.
-- **TLS:** The agent always uses HTTPS with a self-signed certificate. The client
-  skips certificate validation automatically (configurable cert pinning is planned
-  for a later release).
+- **TLS:** The agent always uses HTTPS, with the **ASP.NET Core developer
+  certificate** — run `dotnet dev-certs https --trust` once on the agent machine.
+  Lance manages no certificate of its own. The client skips certificate validation
+  automatically (configurable cert pinning is planned for a later release).
 - **Partial success:** `connect` and `disconnect` are best-effort per monitor — a
   failed monitor is logged and skipped; the others proceed.
 - **Apollo service:** Lance manages only the Apollo instances it launches directly.

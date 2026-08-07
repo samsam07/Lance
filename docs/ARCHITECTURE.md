@@ -77,6 +77,14 @@ canonical contract; this list is the behavioral overview)*
 - `GET /slots/{id}/config` — link to the Apollo config page (slot must be
   running; `?redirect=1` supported).
 
+**Sessions** *(Phase 3 — see "Sessions & tool orchestration" below for behavior)*
+- `POST /sessions` — connect handshake: vet the id, pick and start free slots,
+  persist the record, run agent `session_started` hooks, respond with the slot set.
+- `GET /sessions` — all active sessions with their slots.
+- `GET /sessions/{id}` — one session's slots (the disconnect fast path).
+- `DELETE /sessions/{id}` — clean-disconnect ping → `session_ended(ping)`.
+  `?keepRunning=true` skips stopping the session's slots.
+
 
 ### State management
 
@@ -113,13 +121,24 @@ no port math; the agent supplies every Apollo host:port.
   local Moonlight PIDs cross-referenced by slot port.
 
 **Connect / Disconnect** *(Phase 2+)*
-- `lance connect [--monitors <list>] [--options "<moonlight-options>"]`
+- `lance connect [--monitors <list>] [--options "<moonlight-options>"]
+  [--monitor-options "<key>=<options>" …] [--bitrate-mode <mode>]
+  [--session-id <id>] [--hook <path> …]` — **blocks until the session ends.**
   - `--monitors <list>` — comma-separated monitor references, each a 1-indexed ID
     **or a monitor name** (`--monitors "1,U28E590"`). Default: all physical monitors.
+  - `--options` applies to every stream; `--monitor-options` (repeatable) applies to
+    one monitor, keyed by id or name. See the layer table in SPEC "Moonlight launch".
+  - `--bitrate-mode` — `high` | `balanced` (default) | `conservative` | `manual` | a
+    bits-per-pixel number. Global; overrides `remoteClient.bitrateMode`.
+  - `--session-id` names the session; `--hook` (repeatable) adds hook files on top of
+    the client config's list.
   - Moonlight passthrough examples: `--bitrate <kbps>`, `--video-codec
     <HEVC|H264|AV1>`, `--fps <n>`, `--resolution <WxH>`, etc.
-- `lance disconnect [--slots <list>] [--keep-running] [--purge]`
-  - `--slots <list>` — target specific slot IDs. Default: all running/connected slots.
+- `lance disconnect [--session-id <id>] [--keep-running] [--purge] [<host:port> …]`
+  - `--session-id <id>` — target one session. Default (no id): all active sessions.
+    Positional `host:port` args are the fallback for when the agent is unreachable —
+    they kill matching Moonlights directly. *(There is no `--slots` flag; disconnect
+    is addressed by session, not by slot.)*
   - `--keep-running` — leave the session's Apollo running on the agent (opt out of the
     default stop); Moonlight is still killed. Use case: quick reconnect without re-launching Apollo.
     Mutually exclusive with `--purge`; `--purge` wins if both are given (warns).
@@ -223,7 +242,9 @@ correct physical monitor; failed slots are logged and absent. The setup may be p
 > (Slot 0 excluded). The per-slot best-effort mechanics below are reused. See "Sessions
 > & tool orchestration" below.
 
-Target: all `Running`/`Connected` slots, or only those in `--slots <list>` if specified.
+Target: the slots of the session named by `--session-id`, or of every active session
+when no id is given. The agent resolves a session's slots (fast path); explicit
+`host:port` args are the degraded path when the agent is unreachable.
 
 For each target slot (best-effort; a failed step is logged, other slots proceed):
 1. **Kill all matching Moonlight processes** (client): enumerate `moonlight`
@@ -296,8 +317,8 @@ replaces this with `--monitors <list>` — see SPEC for the full note.
 > Behavior source of truth for the session/event/hook subsystem. Concrete values
 > (state names, `source` enum, env-var names, grace window, hook JSON schema,
 > record path, endpoints) live in SPEC. The original design rationale lives in
-> `docs/TOOL_ORCHESTRATION_SPEC.md`, now integrated here. This subsystem is the
-> major body of Phase 3 (see PLAN Slice 6); it supersedes the earlier *tentative*
+> `docs/design/tool-orchestration.md`, now integrated here. This subsystem is the
+> major body of Phase 3 (see PLAN **Slice 1**); it supersedes the earlier *tentative*
 > session-layer sketch.
 
 **Why.** Sidecar tools (`vox` mic backchannel, future `clipline`, keystroke relay)
@@ -489,7 +510,7 @@ change; severity low).
 
 ### Wire protocol
 
-Existing REST/HTTPS (self-signed, bearer token), extended. **No persistent
+Existing REST/HTTPS (ASP.NET Core dev cert, bearer token), extended. **No persistent
 connection anywhere** — the "maintain an active connection for the session" goal is
 dropped; unnecessary given local event dispatch + probe-based detection.
 
@@ -515,10 +536,12 @@ dropped; unnecessary given local event dispatch + probe-based detection.
 - `[INVESTIGATE-STOP]` **Resolved (Phase 2 Slice 1).** `CloseMainWindow()` returns
   `false` on Apollo's tray/headless process — the graceful wait was always wasted.
   Fix: check the return value; if `false`, skip the wait and call `Kill()` directly.
-- `[DEFER-PATHS]` — All default file paths (agent config, TLS cert, log file; client
-  config) follow Windows / "run from folder" conventions and are non-standard on
-  Linux. `lance-agent.pfx`, `lance-agent.json`, and `lance-agent.log` resolve beside
+- `[DEFER-PATHS]` — All default file paths (agent config, log file; client config)
+  follow Windows / "run from folder" conventions and are non-standard on
+  Linux. `lance-agent.json` and `lance-agent.log` resolve beside
   the binary rather than under `/etc/`, `/var/lib/`, `/var/log/`, or `~/.config/`.
+  No TLS certificate path is involved — the agent uses the dev cert from the user's
+  certificate store (see SPEC "TLS").
   Agent paths: revisit when the daemon/service install is added (Phase 3). Client
   config: XDG compliance (Phase 3). Full table in SPEC.md `[DEFER-PATHS]`.
 - `[DEFER-LINUX-WINDETECT]` **Phase 3** — Linux window title detection for
@@ -557,13 +580,21 @@ dropped; unnecessary given local event dispatch + probe-based detection.
 - `[SESSION-ENDPOINT]` **Resolved (owner, 2026-07-11).** Connect handshake is a
   **new `POST /sessions`** endpoint; `POST /slots` stays allocation-only and never
   creates a session. Request/response body finalized at Slice 1.4.
-- `[VERIFY-MUTEX]` — named-mutex cross-process semantics on Linux unverified. May
-  intersect the foreground-daemon model (single-instance / session-id uniqueness);
-  resolve before the client daemon slice if it does.
+- `[VERIFY-MUTEX]` **Resolved by design (Phase 3 Slice 1).** The concern was whether
+  named-mutex cross-process semantics behave on Linux, in case the foreground daemon
+  needed a client-side single-instance guard. It never did: the client daemon shipped
+  with **no mutex and no lock file**, because session-id uniqueness is enforced
+  **agent-side** — the agent vets the id against all active sessions and refuses a
+  collision with `409 session_id_conflict`. Uniqueness therefore lives at the only
+  place that can see every session, and no cross-process primitive is required on
+  either machine. Adding a client-side single-instance mechanism later would reopen
+  this question — ask first.
 - **Auth (Phase 2):** agent optionally enforces a static bearer token. If
   `auth.token` is set in `lance-agent.json`, all non-`/health` requests must
   carry `Authorization: Bearer <token>`. If absent, the API is open. Client
   sends the token via `agent.token` in `lance.json` or `--token` CLI flag
-  (flag wins). TLS cert validation is unconditionally disabled on the client
-  in Phase 2 (self-signed cert); it will become configurable when PEM support
-  is added.
+  (flag wins). The agent serves HTTPS with the **ASP.NET Core developer
+  certificate** (`UseHttps()` with no arguments — Lance manages no cert of its
+  own; `dotnet dev-certs https --trust` once on the agent machine). TLS cert
+  validation is unconditionally disabled on the client; it becomes configurable
+  when PEM support / pinning lands (`[DEFER-TLS-PINNING]`, Phase 3 Slice 8).

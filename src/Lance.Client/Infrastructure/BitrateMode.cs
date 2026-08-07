@@ -5,7 +5,7 @@ namespace Lance.Client.Infrastructure;
 // How a stream's bitrate is chosen, plus the option layer the choice came from.
 // SourceLayer decides who wins when a stream also carries an explicit --bitrate:
 // an explicit value at the same layer or higher beats the derivation
-// (docs/STREAM_TUNING_SPEC.md §4.2).
+// (docs/design/stream-tuning.md §4.2).
 internal sealed record BitrateSelection
 {
     public bool IsManual { get; init; }

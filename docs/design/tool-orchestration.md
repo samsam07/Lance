@@ -1,14 +1,20 @@
 # Tool Orchestration Spec
 
-Status: design locked. One item requires empirical validation before implementation (see §5, probe latency).
+Status: **design locked and implemented.** Sub-slices 1.0–1.8 shipped; the one
+remaining item is the live end-to-end run, tracked in `TODO.md`.
 
 > **Integrated 2026-07-11.** This design has been folded into the canonical docs:
 > behavior → `ARCHITECTURE.md` ("Sessions & tool orchestration"), values →
-> `SPEC.md` ("Sessions & orchestration"), slice plan → `PLAN.md` (Phase 3 Slice 6).
+> `SPEC.md` ("Sessions & orchestration"), slice plan → `PLAN.md` (**Phase 3 Slice 1**
+> — renumbered from the original Slice 6 when Phase 3 was reordered).
 > This file is retained as the original design rationale; when it disagrees with the
-> canonical docs, **ARCHITECTURE/SPEC win** (per CLAUDE.md). Open markers carried
-> forward: `[VALIDATE-UDP]` (§5 detection, Slice 1.1) and `[SESSION-ENDPOINT]`
-> (§8 handshake endpoint shape, Slice 1.4).
+> canonical docs, **ARCHITECTURE/SPEC win** (per CLAUDE.md).
+>
+> **Both markers that were carried forward are now resolved:**
+> `[VALIDATE-UDP]` (§5 detection, Slice 1.1) — validated 2026-07-11 against a live
+> stream; UDP offsets are base `+9/+10/+11`, and the TCP probe was retired.
+> `[SESSION-ENDPOINT]` (§8 handshake shape, Slice 1.4) — resolved to a **new
+> `POST /sessions`** endpoint; §8 below still describes the pre-decision shape.
 
 ## 1. Overview
 
@@ -186,15 +192,15 @@ Covers the case where **lance-agent crashes mid-session** while host state is mo
 - At replay, `LANCE_EVENT` / `LANCE_EVENT_SOURCE` are set **fresh** (`session_ended` / `reconcile`), not restored from the snapshot — a hook can tell a replayed teardown from a live one.
 - **Teardown commands must be idempotent** (author requirement): restore-when-already-restored, kill-when-already-dead → no-ops. This is what makes a mid-chain `terminate` abort safe to clean up later.
 - **The agent never job-kills Apollo.** Apollo must survive an agent crash — the premise of this whole section. (Only the client jobs its Moonlights, §3.)
-- B replays **`session_ended` only**. Slot-tier hooks are never replayed.
+- Reconciliation replays **`session_ended` only**. Slot-tier hooks are never replayed.
 
 **Accepted gap:** if the agent crashes and **never restarts**, host state stays modified. The Windows service auto-restart makes this rare; no watchdog-of-watchdog in v1.
 
 ## 8. Wire protocol
 
-Existing REST/HTTPS (self-signed, bearer token), extended. **No persistent connection anywhere** — the original goal of "maintain an active connection for the session" is dropped; it is unnecessary given local event dispatch and probe-based detection.
+Existing REST/HTTPS (ASP.NET Core dev cert, bearer token), extended. **No persistent connection anywhere** — the original goal of "maintain an active connection for the session" is dropped; it is unnecessary given local event dispatch and probe-based detection.
 
-- **Connect handshake** (client → agent): existing slot-allocation call, extended with `session_id` and requested monitors/slots. Agent vets the id (global uniqueness; collision → refuse), allocates slots, **persists the record**, runs agent `session_started` hooks, responds go with the allocated slot set.
+- **Connect handshake** (client → agent): ~~existing slot-allocation call, extended with `session_id` and requested monitors/slots~~ — **superseded.** `[SESSION-ENDPOINT]` resolved to a **new `POST /sessions`** endpoint; `POST /slots` stays allocation-only and never creates a session. The agent's behavior is otherwise as described: vet the id (global uniqueness; collision → refuse), allocate slots, **persist the record**, run agent `session_started` hooks, respond go with the allocated slot set. See SPEC "New endpoints" for the request/response bodies.
 - **Clean-disconnect ping** (client → agent): `DELETE /sessions/{id}` shape. Fast-path only — not required for correctness (probe-watch backstops it). When unreachable, teardown still happens via probe-watch.
 
 Sequencing note: the agent's `session_started` hooks complete before the client's; the agent's `session_ended` hooks may run after the client's. This ordering is inherent to who detects what; no cross-machine barrier exists or is needed.
