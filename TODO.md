@@ -2,8 +2,6 @@
 
 ## TODO
 
-- Performance (stutter and lag) issues - performance tuning required.
-  - [ ] End-to-end test of the whole stream-tuning stack
 - [FEAT] Lack of UI to jump back to host PC
 - [FEAT] Mouse pointer on mixed screen (some with moonlight others with host pc) - pointer goes behind moonlight
 - [FEAT] Use logical res instead of physical res when passing resolution to moonlight
