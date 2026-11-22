@@ -394,9 +394,15 @@ Four events, raised **locally per side**, never propagated. Naming
 `lance connect` runs in the **foreground, blocking until the session ends**. There
 is no `--detached` flag.
 
-- **Signal handling:** trap `SIGHUP` / console-close and run graceful teardown
-  (tree-kill children, run `session_ended` hooks) before exit. Load-bearing —
-  foreground-only means terminal close is a normal exit path.
+- **Signal handling:** the daemon owns the signals that end a session — Ctrl-C
+  (`SIGINT`), `SIGTERM`, and on Linux `SIGHUP` (terminal closed) — holds off their
+  default termination, and runs the full graceful teardown (`session_ended` hooks,
+  tree-kill children, clean-disconnect ping) before exit, `source=explicit`.
+  Load-bearing — foreground-only means terminal close is a normal exit path. Teardown
+  is bounded by the hook `timeoutSeconds` and agent `timeoutSeconds`, not by a signal
+  deadline: the command-line library's own 2 s termination handler is disabled for
+  `connect` only. Windows console-close is not trapped (the Job Object still kills the
+  Moonlights; client hooks do not run).
 - **Process ownership:** Moonlights are launched as children.
   - **Windows:** placed in a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
     → daemon dies for any reason → OS kills all Moonlights. Hook-spawned processes

@@ -34,18 +34,16 @@ internal static class SessionDaemon
         IReadOnlyList<HookFileRef> hookReferences,
         CancellationToken cancellationToken)
     {
-        // Closing the terminal sends SIGHUP, which .NET does not turn into cancellation:
-        // left alone it kills the daemon outright, skipping session_ended hooks and the
-        // disconnect ping. Cancelling the default and ending the session the way Ctrl-C
-        // does lets the normal teardown below run. Unix only — Windows is unchanged.
+        // The daemon owns the signals that end a session, so teardown (session_ended
+        // hooks, killing Moonlight, the disconnect ping) runs to completion — bounded by
+        // the hook and agent timeouts — instead of being force-exited. Program turns the
+        // command-line library's own Ctrl-C handling off for `connect`, since it would kill
+        // the process 2 seconds into teardown. SIGHUP (terminal closed) is Unix only: on
+        // Windows it maps to console-close, which is left as it was.
         using CancellationTokenSource sessionEnd = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using PosixSignalRegistration? hangup = OperatingSystem.IsWindows()
-            ? null
-            : PosixSignalRegistration.Create(PosixSignal.SIGHUP, context =>
-            {
-                context.Cancel = true;
-                sessionEnd.Cancel();
-            });
+        using PosixSignalRegistration interrupt = EndSessionOn(PosixSignal.SIGINT, sessionEnd);
+        using PosixSignalRegistration terminate = EndSessionOn(PosixSignal.SIGTERM, sessionEnd);
+        using PosixSignalRegistration? hangup = OperatingSystem.IsWindows() ? null : EndSessionOn(PosixSignal.SIGHUP, sessionEnd);
         CancellationToken endToken = sessionEnd.Token;
 
         int timeout = config.Agent?.TimeoutSeconds ?? 30;
@@ -108,6 +106,16 @@ internal static class SessionDaemon
         // The daemon always stops the slots (tears down the displays) on teardown.
         await client.DeleteSessionAsync(sessionId, keepRunning: false, CancellationToken.None);
         return ExitCodes.Success;
+    }
+
+    // Holds off the signal's default termination and ends the session instead.
+    private static PosixSignalRegistration EndSessionOn(PosixSignal signal, CancellationTokenSource sessionEnd)
+    {
+        return PosixSignalRegistration.Create(signal, context =>
+        {
+            context.Cancel = true;
+            sessionEnd.Cancel();
+        });
     }
 
     // Fewer slots than monitors is the documented partial-success outcome, but the user

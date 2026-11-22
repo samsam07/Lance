@@ -346,11 +346,11 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      SIGHUP, which killed the daemon with no teardown; it now ends the session the way
      Ctrl-C does (Unix only). Linux client config + smoke hook added under
      `samples/linux/`, and the Linux publish ships that config.
-   - **Ctrl-C teardown cutoff.** System.CommandLine force-exits ~2 s after Ctrl-C /
-     SIGTERM, cutting off slow `session_ended` hooks or the disconnect ping (survey
-     C11; affects Windows too). Approved approach: the connect daemon owns
+   - **Ctrl-C teardown cutoff.** ✅ **Done.** System.CommandLine force-exited ~2 s
+     after Ctrl-C / SIGTERM, cutting off slow `session_ended` hooks and the disconnect
+     ping (survey C11; affected Windows too). The connect daemon now owns
      SIGINT/SIGTERM as it owns SIGHUP, and the library's termination handler is
-     disabled for `connect` — teardown is then bounded by the existing hook and agent
+     disabled for `connect` only — teardown is bounded by the existing hook and agent
      timeouts, no new value.
    - *(Further items added as discovered.)*
 

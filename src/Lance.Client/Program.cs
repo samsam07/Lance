@@ -40,7 +40,8 @@ internal static class Program
         root.Add(StopCommand.Build(globals));
         root.Add(DeallocateCommand.Build(globals));
         root.Add(ConfigCommand.Build(globals));
-        root.Add(ConnectCommand.Build(globals));
+        Command connectCommand = ConnectCommand.Build(globals);
+        root.Add(connectCommand);
         root.Add(DisconnectCommand.Build(globals));
         root.Add(MonitorsCommand.Build(globals));
 
@@ -69,9 +70,18 @@ internal static class Program
         bool noColor = parseResult.GetValue(noColorOption);
         SetupLogging(verbose, noColor, config?.Logging);
 
+        // The library's Ctrl-C/SIGTERM handling force-exits 2 seconds after the signal.
+        // `connect` handles those signals itself (SessionDaemon) so its teardown can
+        // finish; every other command keeps the library default.
+        InvocationConfiguration invocation = new();
+        if (parseResult.CommandResult.Command == connectCommand)
+        {
+            invocation.ProcessTerminationTimeout = null;
+        }
+
         try
         {
-            return await parseResult.InvokeAsync();
+            return await parseResult.InvokeAsync(invocation);
         }
         finally
         {
