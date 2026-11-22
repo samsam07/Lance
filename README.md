@@ -389,9 +389,10 @@ if it is absent, built-in defaults apply and a warning is logged.
 
   Only needs doing once per slot. Note that `lance deallocate` removes a slot's
   state file along with its config, so a deallocated slot must be paired again.
-- **Monitor placement:** on Windows, Lance automatically moves each Moonlight
-  window to its target monitor after launch. On Linux, windows open on the
-  primary monitor; manual placement is needed until Phase 3 adds Linux support.
+- **Monitor placement:** Lance automatically moves each Moonlight window to its
+  target monitor after launch — on Windows directly, and on Linux under **KDE
+  Plasma** through KWin (uses the `gdbus` tool, installed by default on Fedora). On
+  other Linux desktops Lance warns and the windows stay where they open.
 - **TLS:** The agent always uses HTTPS, with the **ASP.NET Core developer
   certificate** — run `dotnet dev-certs https --trust` once on the agent machine.
   Lance manages no certificate of its own. The client skips certificate validation

@@ -351,6 +351,29 @@ untouched — automatic sizing is opted into by **removing** the flag.
 - **Moonlight cannot target a specific physical monitor** (no such CLI flag; it picks
   the largest screen). `--monitors` selects stream count + per-stream resolution only.
 
+### Window placement
+
+| | Windows | Linux (KDE Plasma) |
+|---|---|---|
+| Mechanism | `SetWindowPos(SWP_NOSIZE \| SWP_NOZORDER \| SWP_NOACTIVATE)` on `Process.MainWindowHandle` | KWin script loaded over D-Bus |
+| Wait | poll 200 ms × 25 (5 s) for the window handle | none — the script places windows as they appear |
+| Monitor → target | monitor `(X, Y)` | monitor `Name` (Xrandr output name) = KWin output name |
+| Tool | user32 P/Invoke | `gdbus call --session --timeout 5 --dest org.kde.KWin` |
+| Lifetime | one-shot | loaded after launch, unloaded at session teardown |
+
+Linux details:
+- **Script name** `lance-<sessionId>`; **script file**
+  `<temp dir>/lance-placement-<sessionId>.js` (`Path.GetTempPath()`), deleted on unload.
+- **Calls:** `/Scripting` `org.kde.kwin.Scripting.unloadScript <name>` (clears a stale
+  copy) → `loadScript <file> <name>` (reply `(<id>,)`; `< 0` = refused) →
+  `/Scripting/Script<id>` `org.kde.kwin.Script.run`; teardown `unloadScript <name>`.
+- **Script behavior:** for every window whose PID is mapped and that is a normal
+  window, `workspace.sendClientToScreen(window, output)` — on load for existing
+  windows, on `workspace.windowAdded` for new ones, and again on `fullScreenChanged`
+  when the window becomes fullscreen on another output.
+- **Failure** (no `gdbus`, KWin not on the session bus, script refused): one warning,
+  no placement, session continues. Validated against KWin 6.8.3.
+
 ## Agent ↔ client target resolution
 
 Two distinct host:port pairs — do not conflate:

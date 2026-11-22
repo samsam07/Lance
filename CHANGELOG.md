@@ -94,8 +94,10 @@ anything to be changed, deprecated, or fixed against.
   Generated options sit at the base layer so any of them can be overridden.
   Options aimed at a monitor outside the connect, or monitors left unserved by a
   partial launch, produce warnings.
-- **Window placement** — on Windows each Moonlight window is moved to its target
-  monitor after launch.
+- **Window placement** — each Moonlight window is moved to its target monitor after
+  launch: on Windows directly, on Linux under KDE Plasma by asking KWin (needs
+  `gdbus`), including the fullscreen stream window once it opens. Other Linux desktops
+  get a warning and the windows stay where they open.
 
 #### Hooks
 

@@ -101,14 +101,15 @@ meanings against the last shipped version.
     compatible with .NET 10 before changing dependencies.
   - `[DEFER-PATHS]` — Linux/XDG file-path conventions (Phase 3 Slices 3 and 7).
   - `[DEFER-TLS-PINNING]` — client cert pinning / PEM support (Phase 3 Slice 8).
-  - `[DEFER-LINUX-WINDETECT]`, `[DEFER-LINUX-WINPOS]`, `[DEFER-LINUX-REFRESH]` —
-    Linux client completions (Phase 3 Slice 5).
+  - `[DEFER-LINUX-WINDETECT]`, `[DEFER-LINUX-REFRESH]` — Linux client completions
+    (Phase 3 Slice 5).
   - `[DEFER-PAIR-AUTO]` — automated slot pairing (Phase 4).
 
   Already resolved — **do not treat these as open**: `[RESEARCH-1]` (superseded by
   `[VALIDATE-UDP]`), `[VALIDATE-UDP]`, `[SESSION-ENDPOINT]`, `[INVESTIGATE-STOP]`,
   `[DEFER-WIN-ADOPT]`, `[DEFER-LINUX-SIGTERM]`, `[DEFER-1]` (closed as moot),
-  `[VERIFY-MUTEX]` (resolved by design — uniqueness is agent-side; see ARCHITECTURE).
+  `[VERIFY-MUTEX]` (resolved by design — uniqueness is agent-side; see ARCHITECTURE),
+  `[DEFER-LINUX-WINPOS]` (KDE Plasma KWin script; see ARCHITECTURE "connect" step 6).
 - A value not in SPEC (port, path, timeout, error code) — ask or cite where you
   got it; never make one up.
 

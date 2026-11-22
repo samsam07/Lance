@@ -83,6 +83,7 @@ internal static class SessionDaemon
         }
 
         await PositionWindowsAsync(launched);
+        bool isPlacedByKWin = OperatingSystem.IsLinux() && await KWinWindowPlacer.PlaceAsync(sessionId, PlacementsOf(launched));
 
         (HookDispatcher dispatcher, IReadOnlyList<LoadedHook> hooks) = LoadHooks(hookReferences);
         int[] slotIds = SlotIdsOf(launched);
@@ -101,6 +102,10 @@ internal static class SessionDaemon
         await dispatcher.DispatchAsync(LanceEvents.SessionEnded, hooks, endedEnv, CancellationToken.None);
 
         KillRemaining(launched);
+        if (isPlacedByKWin && OperatingSystem.IsLinux())
+        {
+            await KWinWindowPlacer.RemoveAsync(sessionId);
+        }
 
         // Clean-disconnect ping (fast path). Best-effort — probe-watch backstops it.
         // The daemon always stops the slots (tears down the displays) on teardown.
@@ -201,6 +206,22 @@ internal static class SessionDaemon
         {
             await Task.WhenAll(tasks);
         }
+    }
+
+    // Linux placement targets a monitor by its output name; a slot with no mapped
+    // monitor (more slots than monitors) is left where the compositor puts it.
+    private static List<(int Pid, string OutputName)> PlacementsOf(List<LaunchedMoonlight> launched)
+    {
+        List<(int Pid, string OutputName)> placements = [];
+        foreach (LaunchedMoonlight moonlight in launched)
+        {
+            if (moonlight.Monitor is MonitorInfo monitor && !string.IsNullOrEmpty(monitor.Name))
+            {
+                placements.Add((moonlight.Process.Id, monitor.Name));
+            }
+        }
+
+        return placements;
     }
 
     private static (HookDispatcher Dispatcher, IReadOnlyList<LoadedHook> Hooks) LoadHooks(IReadOnlyList<HookFileRef> references)

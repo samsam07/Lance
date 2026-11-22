@@ -382,11 +382,13 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
      matching (method 2). On Linux, `Process.MainWindowTitle` is not supported;
      use `wmctrl -lp` to enumerate window titles and cross-reference by PID.
      Gate on `wmctrl` availability; fall back gracefully to method 1 only.
-   - `[DEFER-LINUX-WINPOS]` — Moonlight monitor placement. Windows uses
-     `SetWindowPos(SWP_NOSIZE)`; Linux equivalent: `wmctrl -r <title> -e
-     0,X,Y,-1,-1` to move by title, or `XMoveWindow` via X11 P/Invoke. Prefer
-     `wmctrl` (no P/Invoke); fall back gracefully if unavailable. Requires
-     `[DEFER-LINUX-WINDETECT]` to be done first (need the title to target the window).
+   - `[DEFER-LINUX-WINPOS]` — Moonlight monitor placement. ✅ **Done (2026-11-22).**
+     The planned `wmctrl` / `XMoveWindow` approach was dropped: neither can position a
+     native-Wayland window. Instead a per-session KWin script, loaded over D-Bus via
+     `gdbus`, sends each Moonlight PID's windows to its monitor's output (KDE Plasma
+     only; other desktops warn). Matches by PID, so it no longer depends on
+     `[DEFER-LINUX-WINDETECT]`. Validated in a nested two-output KWin for native-Wayland
+     and XWayland SDL fullscreen windows; real two-monitor check pending hardware.
    - `[DEFER-LINUX-REFRESH]` — Monitor refresh rate on Linux. `XRRMonitorInfo` has no
      rate; derive it via `XRRGetScreenResourcesCurrent` → output → crtc →
      `XRRModeInfo`, then `dotClock / (hTotal × vTotal)`. Needs real Linux hardware to

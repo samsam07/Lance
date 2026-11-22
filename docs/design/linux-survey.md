@@ -64,7 +64,7 @@ SUPER, proprietary driver 620.70 (RPM Fusion). One monitor: DP-3, 2560×1440 @
 | C3 | ✅ *Done (2026-11-22).* Samples were Windows-only (`C:\…\moonlight.exe`, a `hooks\\…` backslash path Linux cannot resolve, `cmd.exe` / `%TEMP%` in `smoke.json`). Added `samples/linux/lance.json` and `samples/linux/hooks/smoke.json` (`sh -c`, `/tmp/lance-hook-smoke.log`, token as a `<agent-token>` placeholder); the Linux publish now ships that config. No Linux `vox.client.json`: building `vox` for Linux is a separate project, out of scope here (owner, 2026-11-22). | `samples/linux/`, `scripts/publish.cs` | **New** | — |
 | C11 | ✅ *Fixed (2026-11-22).* **Ctrl-C teardown was cut off after ~2 s.** System.CommandLine's `ProcessTerminationTimeout` defaults to 2 s and is not configured, so after Ctrl-C (or SIGTERM) the process is force-exited (130) if `session_ended` hooks + the ping take longer. Measured with a probe: a 5 s teardown is killed at the default, completes with a 30 s timeout. Affects the Windows client too. Fixed with approach (b): the daemon owns SIGINT/SIGTERM, the library handler is off for `connect`. Verified: a 6 s `session_ended` hook completes and the ping arrives, for both Ctrl-C and SIGTERM. | `Program.cs` `InvokeAsync` | **New** | Medium (only bites slow hooks / slow agent) |
 | C4 | **Every slot must be re-paired from the new client.** A fresh Moonlight install has a new client certificate, so Slot 0 and each clone (each has its own server UUID) need a one-time pairing from Fedora before `lance connect` works. Operational, not a code gap. | — | Follows from `[DEFER-PAIR-AUTO]` | Setup step |
-| C5 | Window placement — Windows-only, early return. | `SessionDaemon.PositionWindowsAsync` | `[DEFER-LINUX-WINPOS]` | Low with one monitor |
+| C5 | ✅ *Done (2026-11-22).* Window placement was Windows-only. Now a per-session KWin script over D-Bus (option 2 below) puts each Moonlight PID's windows on its monitor, KDE Plasma only. Validated end-to-end in a nested two-output KWin (real `lance connect`, reversed `--monitors 2,1`, native-Wayland and XWayland SDL fullscreen stand-ins, JIT and AOT): every window fullscreen on its target, script unloaded at teardown. Fallbacks verified (no KWin, no `gdbus`). Real two-monitor check pending hardware. | `KWinWindowPlacer`, `SessionDaemon` | `[DEFER-LINUX-WINPOS]` | — |
 | C6 | Window-title detection (method 2) — always `null` on Linux. | `ProcessCommandLine` | `[DEFER-LINUX-WINDETECT]` | Low (only hand-launched Moonlights) |
 | C7 | `lance.json` resolves only beside the binary (or via `--config`). | `ClientConfigLoader` | `[DEFER-PATHS]`, Slice 7 | Medium once `lance` lives on PATH |
 | C8 | Refresh rate unknown → no generated `--fps`. Now **has hardware to verify against** (kscreen reports 143.99 Hz); the original deferral reason was "no Linux hardware". | `MonitorEnumerator.EnumerateLinux` | `[DEFER-LINUX-REFRESH]` | Low (cap is 60; Moonlight's default applies) |
@@ -83,6 +83,29 @@ and Wayland clients cannot position themselves. Options, none chosen:
 
 With a single monitor on this machine, C5/C6/C8 barely matter today — they matter
 once a second monitor is attached.
+
+**Prototype of option 2 (2026-11-22).** Moonlight 6.2.0 has no display-selection
+option (`--display-mode` is only borderless/fullscreen/windowed), so placement has to
+come from outside. Tested in a headless nested KWin 6.8.3 (`kwin_wayland --virtual
+--output-count 2 --xwayland`, private D-Bus — invisible to the real desktop):
+
+- `lance monitors` inside it lists `Virtual-0` (0,0) and `Virtual-1` (1920,0): the
+  Xrandr names Lance already reads **match KWin's output names**, so a monitor maps
+  to a KWin output by name with no geometry math.
+- A KWin script loaded over D-Bus with the stock `gdbus` CLI (`org.kde.KWin
+  /Scripting loadScript` → `/Scripting/Script<n> run`) can find a window by PID and
+  `workspace.sendClientToScreen(window, output)` it. Moonlight's own Qt window
+  (native Wayland) moved from `Virtual-0` to `Virtual-1`.
+- **Stream window:** an SDL2 fullscreen-desktop window (Moonlight's stream window
+  type, titled `Lance-1 - Moonlight`), native Wayland, opened fullscreen on
+  `Virtual-0`; a script loaded right after launch caught it via
+  `workspace.windowAdded`, moved it, and it **stayed fullscreen** on `Virtual-1`
+  (`1920,0 1920×1080`).
+- **Gap:** the same window under XWayland (`SDL_VIDEODRIVER=x11`) was not seen by the
+  `windowAdded` hook. Matters only if real Moonlight runs via XWayland here — to be
+  resolved in implementation.
+- Native-Wayland windows cannot be positioned by `wmctrl`/`XMoveWindow`, which rules
+  out the approach PLAN Slice 5 originally named.
 
 ## Security note (not Linux-specific)
 
@@ -105,8 +128,7 @@ out of scope here.
 
 Open:
 
-1. **Wayland placement (C5/C6):** option 1, 2 or 3 above — or defer until a second
-   monitor is in play.
+1. None for placement — **option 2 chosen** (owner, 2026-11-22): KWin script, `gdbus` CLI (no new dependency), KDE Plasma only with a warning elsewhere.
 
 ## Suggested order
 
@@ -118,4 +140,4 @@ Open:
    outstanding Slice 1.8 end-to-end run, now from Linux.
 4. ~~C1 SIGHUP~~ ✅, ~~C3 samples~~ ✅, ~~C11 Ctrl-C cutoff~~ ✅.
 5. C7 XDG config path (Slice 7).
-6. C8 refresh rate, then C5/C6 placement when a second monitor matters.
+6. ~~C5 placement~~ ✅; C8 refresh rate; C6 title detection only if hand-launched Moonlights need matching.
