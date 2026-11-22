@@ -43,8 +43,9 @@ anything to be changed, deprecated, or fixed against.
 - **`lance connect` opens a session and blocks** — it performs a handshake with
   the agent, brings up one Apollo slot per target monitor, launches one Moonlight
   window per slot, then stays in the foreground until the session ends. Ends on
-  Ctrl-C, when the last Moonlight exits, or when `lance disconnect` runs from
-  another terminal.
+  Ctrl-C, when its terminal window is closed (Linux), when the last Moonlight
+  exits, or when `lance disconnect` runs from another terminal — each runs the full
+  teardown, including `session_ended` hooks and the disconnect ping.
 - **`--session-id`** names a session explicitly; a colliding id is refused.
 - **Session state machine and crash-recoverable records** — sessions move
   `Provisioned → Connected → Ended`, and each is persisted atomically to

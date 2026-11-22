@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using Lance.Client.Configuration;
 using Lance.Client.Http;
 using Lance.Client.Infrastructure;
@@ -33,10 +34,24 @@ internal static class SessionDaemon
         IReadOnlyList<HookFileRef> hookReferences,
         CancellationToken cancellationToken)
     {
+        // Closing the terminal sends SIGHUP, which .NET does not turn into cancellation:
+        // left alone it kills the daemon outright, skipping session_ended hooks and the
+        // disconnect ping. Cancelling the default and ending the session the way Ctrl-C
+        // does lets the normal teardown below run. Unix only — Windows is unchanged.
+        using CancellationTokenSource sessionEnd = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using PosixSignalRegistration? hangup = OperatingSystem.IsWindows()
+            ? null
+            : PosixSignalRegistration.Create(PosixSignal.SIGHUP, context =>
+            {
+                context.Cancel = true;
+                sessionEnd.Cancel();
+            });
+        CancellationToken endToken = sessionEnd.Token;
+
         int timeout = config.Agent?.TimeoutSeconds ?? 30;
         using AgentClient client = new(agentUrl, timeout, token);
 
-        AgentResult<SessionResponse> handshake = await client.CreateSessionAsync(sessionId, targetMonitors.Count, cancellationToken);
+        AgentResult<SessionResponse> handshake = await client.CreateSessionAsync(sessionId, targetMonitors.Count, endToken);
         if (handshake.IsUnreachable)
         {
             Log.Error("Agent unreachable at {AgentUrl}", agentUrl);
@@ -80,7 +95,7 @@ internal static class SessionDaemon
         Log.Information("Session {SessionId}: started ({Count} stream(s)); watching for disconnect. Press Ctrl+C to end.", sessionId, launched.Count);
         await dispatcher.DispatchAsync(LanceEvents.SessionStarted, hooks, startedEnv, CancellationToken.None);
 
-        string endedSource = await WaitForEndAsync(launched, cancellationToken);
+        string endedSource = await WaitForEndAsync(launched, endToken);
 
         Dictionary<string, string> endedEnv = BuildEnv(LanceEvents.SessionEnded, endedSource, sessionId, agentIp, clientIp, slotIds);
         Log.Information("Session {SessionId}: ending ({Source}).", sessionId, endedSource);
