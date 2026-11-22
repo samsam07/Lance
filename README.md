@@ -115,8 +115,8 @@ first run without a config file, built-in defaults apply and a warning is logged
 ### Client (local machine)
 
 1. Place `lance.exe` (or `lance` on Linux) somewhere on your PATH.
-2. Copy `lance.json` from `dist/client/` beside the binary, or point to it with
-   `--config <path>`.
+2. Copy `lance.json` from `dist/client/` (Windows) or `dist/client-linux/` (Linux)
+   beside the binary, or point to it with `--config <path>`.
 3. Edit `lance.json`:
    - Set `agent.url` to `https://<remote-machine-ip>:9876`.
    - Set `agent.token` to match `auth.token` from `lance-agent.json`.
@@ -261,7 +261,9 @@ hooks from its own config — nothing crosses the wire. A hook file is JSON:
 
 Ready-made examples are in [`samples/hooks/`](samples/hooks/), including
 `smoke.json` — a dependency-free hook that logs each event to
-`%TEMP%\lance-hook-smoke.log`, handy for confirming hooks fire.
+`%TEMP%\lance-hook-smoke.log`, handy for confirming hooks fire. The Linux client's
+version is [`samples/linux/hooks/smoke.json`](samples/linux/hooks/smoke.json) and logs
+to `/tmp/lance-hook-smoke.log`.
 
 ---
 
@@ -343,7 +345,8 @@ Place beside `lance.exe` / `lance`, or specify with `--config <path>`.
 }
 ```
 
-Full sample files are in [`samples/`](samples/).
+Full sample files are in [`samples/`](samples/); the Linux client's are in
+[`samples/linux/`](samples/linux/).
 
 **Agent URL lookup** (first match wins):
 

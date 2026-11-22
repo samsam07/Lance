@@ -1,0 +1,15 @@
+{
+  "name": "smoke-test",
+  "events": {
+    "session_started": {
+      "commands": [
+        { "command": "sh", "args": ["-c", "echo '[${LANCE_SIDE}] session_started id=${LANCE_SESSION_ID} slots=${LANCE_SLOT_IDS} agent=${LANCE_AGENT_IP} client=${LANCE_CLIENT_IP}' >> /tmp/lance-hook-smoke.log"] }
+      ]
+    },
+    "session_ended": {
+      "commands": [
+        { "command": "sh", "args": ["-c", "echo '[${LANCE_SIDE}] session_ended source=${LANCE_EVENT_SOURCE} id=${LANCE_SESSION_ID}' >> /tmp/lance-hook-smoke.log"] }
+      ]
+    }
+  }
+}

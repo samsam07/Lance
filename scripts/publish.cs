@@ -5,7 +5,8 @@
 //          builds lance client (win-x64 AOT) to dist/client/
 // Linux:   builds lance client (linux-x64 AOT) to dist/client-linux/
 //
-// Sample configs from samples/ are copied into each dist directory.
+// Sample configs from samples/ (samples/linux/ for the Linux client) are copied into
+// each dist directory.
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -56,7 +57,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
     Section("Client (linux-x64):");
     Publish("Lance.Client", "linux-x64-aot");
     CleanPdbs(Path.Combine(distDir, "client-linux"));
-    CopySampleConfig(root, Path.Combine(distDir, "client-linux"), "lance.json");
+    CopySampleConfig(root, Path.Combine(distDir, "client-linux"), "lance.json", sampleDir: "linux");
 }
 
 ShowArtifacts(distDir);
@@ -102,9 +103,9 @@ void CleanPdbs(string dir)
         File.Delete(f);
 }
 
-void CopySampleConfig(string repoRoot, string destDir, string fileName)
+void CopySampleConfig(string repoRoot, string destDir, string fileName, string sampleDir = "")
 {
-    string src  = Path.Combine(repoRoot, "samples", fileName);
+    string src  = Path.Combine(repoRoot, "samples", sampleDir, fileName);
     string dest = Path.Combine(destDir, fileName);
     if (!File.Exists(src)) return;
     if (!Directory.Exists(destDir)) return;

@@ -112,7 +112,9 @@ anything to be changed, deprecated, or fixed against.
   on `connect` (repeatable, layered on top).
 - **Reference hook samples** in `samples/hooks/`: `vox.agent.json` and
   `vox.client.json` for the microphone-bridge flow, and `smoke.json`, a
-  dependency-free hook that logs each event for confirming hooks fire.
+  dependency-free hook that logs each event for confirming hooks fire. Linux
+  equivalents of the client config and the smoke hook are in `samples/linux/`, and
+  the Linux client build ships that config.
 
 #### Slot management
 

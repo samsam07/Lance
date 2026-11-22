@@ -15,6 +15,10 @@ Each side runs its **own** hooks from its own config — nothing crosses the wir
 | `vox.agent.json` | Agent side of the `vox` mic backchannel: back up + switch host audio, launch `vox`; kill `vox` + restore on end. |
 | `vox.client.json` | Client side of `vox`: just launch/kill `vox` (no host-audio switching). |
 
+These samples are for Windows. The Linux client's `smoke.json` is in
+[`../linux/hooks/`](../linux/hooks/smoke.json) (runs `sh`, logs to
+`/tmp/lance-hook-smoke.log`); there is no Linux `vox` sample yet.
+
 `audiohelper` / `vox` are **external tools you provide** — Lance only runs the
 commands. A tool whose teardown must kill a process has to make it findable
 (pidfile or a wrapper that tracks the PID); Lance never supervises hook-spawned

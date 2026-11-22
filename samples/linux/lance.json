@@ -1,0 +1,28 @@
+{
+  "agent": {
+    "url": "https://<agent-host>:9876",
+    "token": "<agent-token>",
+    "timeoutSeconds": 30
+  },
+  "remoteClient": {
+    "executable": "moonlight",
+    "defaultOptions": [
+      "--video-codec",
+      "HEVC",
+      "--capture-system-keys",
+      "fullscreen"
+    ],
+    "bitrateMode": "balanced",
+    "monitorOptions": {}
+  },
+  "ui": {
+    "color": true
+  },
+  "hooks": [
+    { "active": false, "path": "hooks/smoke.json" }
+  ],
+  "logging": {
+    "level": "Information",
+    "filePath": null
+  }
+}
