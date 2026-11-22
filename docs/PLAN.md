@@ -341,6 +341,17 @@ Same rules as Phase 1 and 2: one slice at a time, review gate after each.
        naming one screen fast-fails instead of claiming two slots. Selection logic
        moved out of `ConnectCommand` into `MonitorSelection` and given its first
        tests. All monitor-facing output now names the monitor, not just its id.
+   - **Linux client daily use (Fedora client → Windows agent).** ✅ **Done.** Found by
+     `docs/design/linux-survey.md`. Closing the terminal running `lance connect` sent
+     SIGHUP, which killed the daemon with no teardown; it now ends the session the way
+     Ctrl-C does (Unix only). Linux client config + smoke hook added under
+     `samples/linux/`, and the Linux publish ships that config.
+   - **Ctrl-C teardown cutoff.** System.CommandLine force-exits ~2 s after Ctrl-C /
+     SIGTERM, cutting off slow `session_ended` hooks or the disconnect ping (survey
+     C11; affects Windows too). Approved approach: the connect daemon owns
+     SIGINT/SIGTERM as it owns SIGHUP, and the library's termination handler is
+     disabled for `connect` — teardown is then bounded by the existing hook and agent
+     timeouts, no new value.
    - *(Further items added as discovered.)*
 
 3. **Agent service / daemon install.** *(Pulled forward from Phase 4.)*
